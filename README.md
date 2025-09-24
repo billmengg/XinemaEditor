@@ -18,12 +18,13 @@ This MVP is simple, modular, and extendable for future optimizations.
 ```
 xinema_mvp/
 ├── data/
-│   ├── script.txt            # Script for the video essay (one sentence per line)
-│   └── clips.json            # Clip descriptions (id, character, episode, description)
+│   ├── script.txt              # Script for the video essay (one sentence per line)
+│   ├── video_clips.csv         # Clip dataset (id, description, folder, etc.)
+│   └── unique_characters.csv   # Mapping from id to character
 ├── output/
-│   └── matches.json          # Results of script → clip matching
-├── xinema_mvp.py             # Main script
-└── utils.py                  # Helper functions (data loading, embedding, matching)
+│   └── matches.json            # Results of script → clip matching
+├── xinema_mvp.py               # Main script
+└── utils.py                    # Helper functions (data loading, embedding, matching)
 ```
 
 ---
@@ -33,30 +34,15 @@ xinema_mvp/
 ### 1. Install Dependencies
 
 ```bash
-pip install sentence-transformers
+pip install sentence-transformers pandas python-docx
 ```
 
 ### 2. Prepare Data
 
 - `data/script.txt`: Each line is a single script sentence.
-- `data/clips.json`: JSON array of clip objects. Example format:
-
-```json
-[
-  {
-    "id": "s01e03_17",
-    "character": "Vi",
-    "episode": 3,
-    "desc": "Vi and Jinx fight on the bridge."
-  },
-  {
-    "id": "s01e02_05",
-    "character": "Jayce",
-    "episode": 2,
-    "desc": "Jayce gives a speech to the council."
-  }
-]
-```
+- `data/clips.csv`: CSV file containing clip metadata. Example columns:
+  - `filename`, `character`, `foidlder`, `description`, etc.
+- `data/unique_characters.csv`: CSV file mapping `character` to `abbreviation`.
 
 ### 3. Run the MVP
 
@@ -64,19 +50,19 @@ pip install sentence-transformers
 python xinema_mvp.py
 ```
 
-- Output will be saved in `output/matches.json`.
+- Output will be saved in `output/matches.csv`.
 - Each script line maps to the best matching clip.
 
 ---
 
 ## Workflow (Current MVP)
 
-1. Load data (script + clip descriptions)
+1. Load data (`script.txt`, `clips.csv`, and `unique_characters.csv`)
 2. Load pretrained embedding model (`all-MiniLM-L6-v2`)
 3. Embed clip descriptions once
 4. Embed script sentences one by one and calculate cosine similarity with clip embeddings
 5. Select best match for each script sentence
-6. Save results to JSON for later video assembly
+6. Save results to CSV for later video assembly
 
 ---
 

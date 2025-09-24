@@ -1,0 +1,111 @@
+MVP Video Editor Plan
+
+---
+
+1. **Core Objective**
+
+* Provide an editor to view, sequence, and match clips to script.
+* Sequential playback and export of assembled video.
+
+---
+
+2. **Target Users**
+
+* Internal editors at the startup.
+* YouTube content creators (beta testers).
+
+---
+
+3. **Platform & Tech Stack**
+
+* Desktop app (fast local file access).
+* Frontend/UI: Electron + React.
+* Backend: Node.js or Python.
+* Media handling: FFmpeg for video export.
+* Metadata storage: CSV or SQLite.
+
+---
+
+4. **MVP Features**
+
+**A. Clip Management**
+
+* Load all clips from folder.
+* Display grid/list view with thumbnails.
+* Show filename, character, standardized ID.
+
+**B. Drag & Drop Sequencer**
+
+* Drag clips into a timeline.
+* Reorder clips.
+* Show total duration.
+
+**C. Script Input & Clip Suggestions**
+
+* Text box for script input.
+* Suggest matching clips for each line.
+* Accept/reject suggestions.
+
+**D. Audio Input**
+
+* Import MP3/WAV audio.
+* Audio shown as reference (no auto alignment).
+
+**E. Preview & Playback**
+
+* Play sequence.
+* Show thumbnails or small video preview.
+* Optional: mute/play audio.
+
+**F. Export**
+
+* Export sequence as MP4.
+* Sequential concatenation (no transitions in MVP).
+
+---
+
+5. **Optional MVP Features**
+
+* Filter clips by character/episode.
+* Search bar for clips.
+* Undo/Redo.
+* Drag-and-drop from file explorer.
+
+---
+
+6. **User Flow**
+7. Open editor → load clips.
+8. Import script → suggest clips.
+9. Drag/drop clips → reorder.
+10. Import reference audio (optional).
+11. Preview sequence.
+12. Export final video.
+
+---
+
+7. **Success Metrics**
+
+* Assemble sequence in <15 min.
+* Accurate script-to-clip suggestions.
+* Export playable video.
+* Smooth playback.
+
+---
+
+8. **Visual/UI Notes**
+
+* Clean, modern, minimal.
+* Left panel: clip library + search/filter.
+* Center panel: timeline/sequence.
+* Right panel: script + suggested clips.
+* Top bar: import/export buttons, project name.
+* Minimal colors, clear typography, responsive drag-and-drop.
+
+---
+
+9. **Next Steps After MVP**
+
+* Automatic audio-to-clip alignment.
+* Clip trimming and transitions.
+* AI-based semantic clip matching.
+* Multi-track editing.

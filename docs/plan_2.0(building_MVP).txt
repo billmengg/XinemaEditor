@@ -1,0 +1,113 @@
+# MVP Video Editor Plan
+
+1. **File Navigator / Clip Browser**
+
+---
+
+* Tree/grid view of clips by character/folder
+* Search bar: filter by ID, description, or character
+* Clip preview: first 3-5 seconds
+* Drag-and-drop support to timeline
+
+2. **Timeline / Sequence Editor**
+
+---
+
+* Horizontal timeline with clip blocks
+* Drag-and-drop clips from browser
+* Resize clip blocks (duration placeholder)
+* Scrollable timeline
+* Snap-to-grid for arrangement
+* Sequential playback of clips in timeline
+
+3. **Script Input & Matching**
+
+---
+
+* Input textbox for plain text script
+* Match script lines to clips (substring/keyword match)
+* Highlight matched clips
+* Drag matched clips directly to timeline
+* Allow multiple matches per line
+
+4. **Clip Organization & Standardization**
+
+---
+
+* Standardized ID format (ID + description + character)
+* Backend reads CSV/SQLite for metadata
+* Frontend displays metadata: ID, description, character
+
+5. **Export / Save Functionality**
+
+---
+
+* Save project as JSON/CSV (timeline + clip IDs)
+* Export sequential video using FFmpeg
+* Playback within editor before export
+
+6. **User Flow (MVP)**
+
+---
+
+1. Open app → browse clips
+
+2. Drag clips to timeline → arrange sequence
+
+3. Input script → get matched clips → drag into timeline
+
+4. Preview sequence → adjust
+
+5. Export project (JSON) or sequential video
+
+6. **Additional MVP Considerations**
+
+---
+
+* Minimal, clean UI
+* Handle \~500–1000 clips smoothly
+* Desktop first (PyQt / Electron), future web version possible
+* Local file access, no cloud required for MVP
+* Accept MP3 audio, no sync yet (sequential clip output only)
+
+8. **Roadmap / Milestones (suggested)**
+
+---
+
+* Week 1: File navigator / clip browser
+* Week 2: Timeline / drag-and-drop editor
+* Week 3: Script input & matching logic
+* Week 4: Playback + export sequential video
+* Week 5: Polishing UI, handling large clip sets, testing
+
+
+Xinema/
+├── backend/                  # Node.js backend for file ops, video metadata
+│   ├── package.json
+│   ├── server.js             # main backend entrypoint
+│   ├── controllers/          # business logic
+│   │   └── fileController.js
+│   ├── utils/                # helper functions (file parsing, renaming)
+│   │   └── idParser.js
+│   └── data/                 # temp data storage / database (if needed)
+│       └── video_files.json
+│
+├── frontend/                 # React app
+│   ├── package.json
+│   ├── public/
+│   │   └── index.html
+│   └── src/
+│       ├── App.jsx
+│       ├── index.jsx
+│       ├── components/       # reusable UI components
+│       │   ├── FileNavigator.jsx
+│       │   ├── Timeline.jsx
+│       │   ├── ClipCard.jsx
+│       │   └── ScriptInput.jsx
+│       ├── hooks/            # custom React hooks
+│       │   └── useFileData.js
+│       └── styles/           # CSS or Tailwind
+│           └── main.css
+│
+.gitignore
+README.md
