@@ -1,0 +1,89 @@
+MVP Step 1: File Navigator / Clip Browser (Tabbed UI)
+
+UI Layout:
+
+* Tabbed interface: Each main component has its own tab.
+
+  * Tab 1: File Navigator / Clip Browser (current focus)
+  * Tab 2: Timeline / Workspace (future)
+  * Tab 3: Script / Audio Input (future)
+  * Tab 4: Output / Export (future)
+
+File Navigator Tab Components:
+
+1. Folder Navigation Panel
+
+   * Left-side vertical panel showing folder hierarchy.
+   * Browse local directories (e.g., Video Footage 2).
+   * Expand character folders to show clips.
+   * Optional: remember last opened folder.
+
+2. Clip List / Grid Panel
+
+   * Main area displays all clips in the selected folder.
+   * Metadata columns:
+
+     * Filename (cleaned/standardized, commas replaced with semicolons)
+     * Duration 
+     * Character
+     * ID
+     * Season (parsed from ID)
+     * Episode (parsed from ID)
+     * Clip order (parsed from ID)
+     * Thumbnail preview 
+   * Sort by:
+
+     * ID
+     * Character
+     * Season and Episode
+     * Clip order
+   * Search / filter functionality by:
+
+     * Filename / ID / Character
+     * Season / Episode
+
+3. Clip Preview Window
+
+   * Plays selected clip within the tab.
+   * Basic controls: play, pause, scrub.
+   * Optional: show waveform if audio is present.
+
+4. Drag & Drop Functionality
+
+   * Drag clips from the list into timeline tab (future).
+   * Preview drop order before sending to timeline.
+
+5. Context Menu / Clip Actions
+
+   * Right-click on clip:
+
+     * Rename
+     * Delete / move
+     * View metadata
+     * Preview
+
+6. UI / UX Considerations
+
+   * Clean, minimal design.
+   * Smooth scrolling for large clip libraries.
+   * Responsive layout (resizable panels).
+   * Tabs clearly labeled; active tab highlighted.
+
+Backend / Data Management:
+
+* Internal data structure (JSON, pandas dataframe, or in-memory dict) storing:
+
+  * Clip paths
+  * Clip metadata (id, character, filename, season, episode, clip order)
+  * Current sort/filter state
+* Auto-update when new clips are added to the folder.
+
+Optional / Later Features:
+
+Multi-select clips
+
+Describe a scene and get recommended clips
+
+Tab switching (Timeline, File Nav, etc.)
+
+Clip preview panel

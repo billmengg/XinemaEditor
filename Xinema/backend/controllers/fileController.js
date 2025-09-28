@@ -1,27 +1,35 @@
-const express = require('express');
 const fs = require('fs');
+const csv = require('csv-parser');
 const path = require('path');
-const router = express.Router();
 
-const BASE_FOLDER = 'C:/Users/William/Documents/YouTube/Video/Arcane Footage/Video Footage 2';
+// CSV path
+const csvPath = path.join(__dirname, '../data/clips.csv');
 
-router.get('/', (req, res) => {
-    // Scan character folders and return list of files + metadata
-    const data = [];
-    fs.readdirSync(BASE_FOLDER).forEach(char => {
-        const charPath = path.join(BASE_FOLDER, char);
-        if (fs.statSync(charPath).isDirectory()) {
-            fs.readdirSync(charPath).forEach(file => {
-                if (file.endsWith('.mp4')) {
-                    data.push({
-                        filename: file,
-                        character: char
-                    });
-                }
-            });
-        }
-    });
-    res.json(data);
-});
 
-module.exports = router;
+const getAllClips = (req, res) => {
+  const clips = [];
+  fs.createReadStream(csvPath)
+    .pipe(csv())
+    .on('data', (row) => {
+      // Parse season, episode, order from the ID (format: XX.S1.E1.C01)
+      let season = '', episode = '', order = '';
+      const idMatch = row.id.match(/S(\d+)\.E(\d+)\.C(\d+)/i);
+      if (idMatch) {
+        season = `S${idMatch[1]}`;
+        episode = `E${idMatch[2]}`;
+        order = parseInt(idMatch[3], 10);
+      }
+      clips.push({
+        ...row,
+        season,
+        episode,
+        order,
+        duration: "0:00", // Placeholder - would need video file analysis
+        thumbnail: null, // Placeholder - would need thumbnail generation
+      });
+    })
+    .on('end', () => res.json(clips))
+    .on('error', (err) => res.status(500).json({ error: err.message }));
+};
+
+module.exports = { getAllClips };
