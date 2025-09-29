@@ -1,57 +1,162 @@
-# Xinema MVP
+# Xinema - Video Essay Clip Matching Tool
 
 ## Overview
 
-Xinema is a tool designed to automatically match a video essay script with relevant video clips.
+Xinema is a comprehensive tool designed to automatically match video essay scripts with relevant video clips. The project includes both a Python-based MVP for core matching logic and a full-stack web application for interactive clip management and visualization.
 
-**MVP (v0.1) Features:**
-- **Input:** Script sentences + Arcane clip descriptions
-- **Output:** Best matching clip for each script sentence
-- **Approach:** Pretrained sentence embeddings + cosine similarity
-
-This MVP is simple, modular, and extendable for future optimizations.
+**Current Features:**
+- **Python MVP:** Script-to-clip matching using pretrained sentence embeddings
+- **Web Application:** Interactive React frontend with Node.js backend
+- **Clip Management:** File navigation, preview, and timeline visualization
+- **Matching Results:** Visual display of script-to-clip matches
 
 ---
 
-## Folder Structure
+## Project Structure
 
 ```
-xinema_mvp/
-├── data/
-│   ├── script.txt              # Script for the video essay (one sentence per line)
-│   ├── video_clips.csv         # Clip dataset (id, description, folder, etc.)
-│   └── unique_characters.csv   # Mapping from id to character
-├── output/
-│   └── matches.json            # Results of script → clip matching
-├── xinema_mvp.py               # Main script
-└── utils.py                    # Helper functions (data loading, embedding, matching)
+XinemaEditor/
+├── .gitignore                  # Git ignore rules (excludes node_modules, __pycache__, etc.)
+├── README.md                   # This file
+├── LICENSE                     # MIT License
+├── utils.py                    # Python helper functions
+├── xinema_mvp.py              # Python MVP script
+├── docs/                       # Documentation and planning files
+│   ├── plan_1(MVP).txt
+│   ├── plan_2.0(building_MVP).txt
+│   └── plan_2.1(File Nav)
+└── Xinema/                     # Web Application
+    ├── backend/                # Node.js/Express Backend
+    │   ├── controllers/
+    │   │   └── fileController.js
+    │   ├── data/               # Data files
+    │   │   ├── clips.csv
+    │   │   ├── script.txt
+    │   │   └── unique_characters.csv
+    │   ├── routes/
+    │   │   └── fileRoutes.js
+    │   ├── package.json        # Backend dependencies
+    │   ├── package-lock.json   # Locked dependency versions
+    │   ├── server.js           # Express server
+    │   └── index.js            # Main backend entry point
+    └── frontend/               # React Frontend
+        ├── public/
+        │   └── index.html
+        ├── src/
+        │   ├── components/     # React components
+        │   │   ├── ClipList.js
+        │   │   ├── ClipPreview.js
+        │   │   ├── FileNav.js
+        │   │   ├── MatchResults.js
+        │   │   └── Timeline.js
+        │   ├── App.js          # Main React app
+        │   └── index.js        # React entry point
+        ├── package.json        # Frontend dependencies
+        └── package-lock.json   # Locked dependency versions
 ```
 
 ---
 
 ## Getting Started
 
-### 1. Install Dependencies
+### Prerequisites
+
+- **Node.js** (v14 or higher) and npm
+- **Python** (v3.7 or higher) and pip
+
+### 1. Clone the Repository
 
 ```bash
-pip install sentence-transformers pandas python-docx
+git clone <repository-url>
+cd XinemaEditor
 ```
 
-### 2. Prepare Data
-
-- `data/script.txt`: Each line is a single script sentence.
-- `data/clips.csv`: CSV file containing clip metadata. Example columns:
-  - `filename`, `character`, `foidlder`, `description`, etc.
-- `data/unique_characters.csv`: CSV file mapping `character` to `abbreviation`.
-
-### 3. Run the MVP
+### 2. Python MVP Setup
 
 ```bash
+# Install Python dependencies
+pip install sentence-transformers pandas python-docx
+
+# Prepare data (ensure these files exist in Xinema/backend/data/)
+# - script.txt: Each line is a single script sentence
+# - clips.csv: CSV file containing clip metadata
+# - unique_characters.csv: CSV file mapping character to abbreviation
+
+# Run the MVP
 python xinema_mvp.py
 ```
 
-- Output will be saved in `output/matches.csv`.
-- Each script line maps to the best matching clip.
+### 3. Web Application Setup
+
+#### Backend Setup
+```bash
+cd Xinema/backend
+npm install
+npm start
+# Server runs on http://localhost:3001
+```
+
+#### Frontend Setup
+```bash
+cd Xinema/frontend
+npm install
+npm start
+# React app runs on http://localhost:3000
+```
+
+### 4. Development Workflow
+
+1. **Start Backend**: `cd Xinema/backend && npm start`
+2. **Start Frontend**: `cd Xinema/frontend && npm start` (in a new terminal)
+3. **Access Application**: Open http://localhost:3000 in your browser
+
+### 5. Data Management
+
+The application uses data files located in `Xinema/backend/data/`:
+- `clips.csv`: Video clip metadata with descriptions
+- `script.txt`: Video essay script (one sentence per line)
+- `unique_characters.csv`: Character name mappings
+
+**Note**: `node_modules` directories are excluded from version control. They will be automatically created when you run `npm install`.
+
+---
+
+## Development & Git Best Practices
+
+### Dependency Management
+
+This project follows Node.js and Python best practices:
+
+- **`node_modules/` excluded**: These directories are not committed to version control
+- **`package.json` & `package-lock.json`**: Contains all dependency information
+- **`__pycache__/` excluded**: Python cache files are ignored
+- **Automatic restoration**: Dependencies are restored with `npm install` and `pip install`
+
+### Git Workflow
+
+```bash
+# Initial setup (after cloning)
+cd XinemaEditor
+cd Xinema/backend && npm install
+cd ../frontend && npm install
+
+# Development
+git add .
+git commit -m "Your changes"
+git push
+
+# Pulling updates
+git pull
+# If package.json changed, run:
+cd Xinema/backend && npm install
+cd ../frontend && npm install
+```
+
+### File Structure Notes
+
+- **`.gitignore`**: Comprehensive ignore rules for Node.js, Python, and IDE files
+- **No `node_modules`**: These are regenerated from `package.json` files
+- **Clean repository**: Only source code and configuration files are tracked
 
 ---
 
