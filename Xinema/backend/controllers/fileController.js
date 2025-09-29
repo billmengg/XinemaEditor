@@ -32,4 +32,55 @@ const getAllClips = (req, res) => {
     .on('error', (err) => res.status(500).json({ error: err.message }));
 };
 
-module.exports = { getAllClips };
+const getVideoFile = (req, res) => {
+  const { character, filename } = req.params;
+  
+  // Construct the path to the video file
+  const videoPath = path.join(
+    'C:', 'Users', 'William', 'Documents', 'YouTube', 'Video', 'Arcane Footage', 'Video Footage 2',
+    character, filename
+  );
+  
+  console.log('Video request:', { character, filename, videoPath });
+  
+  // Check if file exists
+  if (!fs.existsSync(videoPath)) {
+    console.log('Video file not found at:', videoPath);
+    return res.status(404).json({ error: 'Video file not found', path: videoPath });
+  }
+  
+  console.log('Video file found, serving:', videoPath);
+  
+  // Set appropriate headers for video streaming
+  const stat = fs.statSync(videoPath);
+  const fileSize = stat.size;
+  const range = req.headers.range;
+  
+  if (range) {
+    const parts = range.replace(/bytes=/, "").split("-");
+    const start = parseInt(parts[0], 10);
+    const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+    const chunksize = (end - start) + 1;
+    const file = fs.createReadStream(videoPath, { start, end });
+    const head = {
+      'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+      'Accept-Ranges': 'bytes',
+      'Content-Length': chunksize,
+      'Content-Type': 'video/mp4',
+    };
+    res.writeHead(206, head);
+    file.pipe(res);
+  } else {
+    const head = {
+      'Content-Length': fileSize,
+      'Content-Type': 'video/mp4',
+    };
+    res.writeHead(200, head);
+    fs.createReadStream(videoPath).pipe(res);
+  }
+};
+
+module.exports = { 
+  getAllClips,
+  getVideoFile 
+};

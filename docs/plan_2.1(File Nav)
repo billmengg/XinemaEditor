@@ -87,3 +87,47 @@ Describe a scene and get recommended clips
 Tab switching (Timeline, File Nav, etc.)
 
 Clip preview panel
+
+**Unimplemented Features (Future Enhancements):**
+
+1. **Video Preview Implementation**
+   * Replace "Video Preview Placeholder" with actual video player
+   * Basic controls: play, pause, scrub
+   * Optional: show waveform if audio is present
+   * Support for multiple video formats (MP4, MOV, etc.)
+
+2. **Context Menu Backend Integration**
+   * Implement actual rename functionality
+   * Implement actual delete functionality
+   * Implement actual move functionality
+   * Connect to backend API endpoints
+
+3. **Folder Hierarchy Navigation**
+   * Browse actual local directories (e.g., Video Footage 2)
+   * Expand character folders to show clips
+   * Remember last opened folder
+   * File system integration
+
+4. **Duration Fix**
+   * Replace placeholder "0:00" with actual video duration
+   * Implement video file analysis to extract real duration
+   * Cache duration data for performance
+   * Update duration when files are modified
+
+5. **Thumbnail Generation**
+   * Replace placeholder thumbnails with actual video thumbnails
+   * Generate thumbnails on first load
+   * Cache thumbnails for performance
+   * Support for multiple thumbnail sizes
+
+6. **Advanced Search & Filtering**
+   * Date range filtering
+   * Duration range filtering
+   * File size filtering
+   * Advanced search with multiple criteria
+
+7. **Performance Optimizations**
+   * Virtual scrolling for large clip libraries
+   * Lazy loading of thumbnails
+   * Pagination for large datasets
+   * Background processing for heavy operations

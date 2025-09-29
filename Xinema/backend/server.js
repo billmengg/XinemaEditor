@@ -10,6 +10,7 @@ app.use(express.json());
 
 // Register routes
 app.use('/api/files', fileRoutes);
+app.use('/api', fileRoutes);
 
 // Test root
 app.get('/', (req, res) => res.send('Backend is running'));
