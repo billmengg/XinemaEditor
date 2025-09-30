@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import ClipList from './components/ClipList';
-import ClipPreview from './components/ClipPreview';
+import Preview from './components/Preview';
 
 function App() {
   const [activeTab, setActiveTab] = useState('editor');
@@ -52,8 +52,7 @@ function App() {
 
 // Editor Layout - Premiere Pro style 3-window setup with resizable panels
 function EditorLayout() {
-  const [leftWidth, setLeftWidth] = React.useState(800);
-  const [rightWidth, setRightWidth] = React.useState(350);
+  const [leftWidth, setLeftWidth] = React.useState(1200);
   const [timelineHeight, setTimelineHeight] = React.useState(250);
   const [isResizing, setIsResizing] = React.useState(null);
   const [selectedClip, setSelectedClip] = React.useState(null);
@@ -72,9 +71,6 @@ function EditorLayout() {
     if (isResizing === 'left') {
       const newWidth = Math.max(200, Math.min(600, e.clientX));
       setLeftWidth(newWidth);
-    } else if (isResizing === 'right') {
-      const newWidth = Math.max(200, Math.min(600, containerWidth - e.clientX));
-      setRightWidth(newWidth);
     } else if (isResizing === 'timeline') {
       const newHeight = Math.max(150, Math.min(400, containerHeight - e.clientY + 100));
       setTimelineHeight(newHeight);
@@ -89,7 +85,7 @@ function EditorLayout() {
     if (isResizing) {
       document.addEventListener('mousemove', handleMouseMove);
       document.addEventListener('mouseup', handleMouseUp);
-      document.body.style.cursor = isResizing === 'left' || isResizing === 'right' ? 'col-resize' : 'row-resize';
+      document.body.style.cursor = isResizing === 'left' ? 'col-resize' : 'row-resize';
       document.body.style.userSelect = 'none';
     } else {
       document.removeEventListener('mousemove', handleMouseMove);
@@ -163,24 +159,9 @@ function EditorLayout() {
               Preview
             </h3>
             <div style={{ flex: 1, overflow: 'hidden' }}>
-              <ClipPreview clip={selectedClip} />
+              <Preview clip={selectedClip} />
             </div>
           </div>
-          
-          {/* Right Resize Handle */}
-          <div
-            style={{
-              position: 'absolute',
-              top: 0,
-              right: -2,
-              width: '4px',
-              height: '100%',
-              background: isResizing === 'right' ? '#007bff' : 'transparent',
-              cursor: 'col-resize',
-              zIndex: 10
-            }}
-            onMouseDown={handleMouseDown('right')}
-          />
         </div>
       </div>
 

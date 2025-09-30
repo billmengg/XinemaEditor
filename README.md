@@ -8,6 +8,7 @@ Xinema is a comprehensive tool designed to automatically match video essay scrip
 - **Python MVP:** Script-to-clip matching using pretrained sentence embeddings
 - **Web Application:** Interactive React frontend with Node.js backend
 - **Clip Management:** File navigation, preview, and timeline visualization
+- **Video Thumbnails:** Video first-frame thumbnails using HTML5 video elements (Windows file paths)
 - **Matching Results:** Visual display of script-to-clip matches
 
 ---
@@ -63,6 +64,20 @@ XinemaEditor/
 
 - **Node.js** (v14 or higher) and npm
 - **Python** (v3.7 or higher) and pip
+- **Windows file system** (for video file paths and thumbnails)
+
+**Note:** The thumbnail generation feature uses HTML5 video elements to display the first frame of video files. This approach works with Windows file paths and requires the video files to be accessible via the backend API. The current implementation is optimized for Windows file systems with the specific path structure used in this project.
+
+#### Windows-Specific Implementation
+
+The current thumbnail system is designed for Windows environments with the following characteristics:
+
+- **File Path Structure:** `C:\Users\William\Documents\YouTube\Video\Arcane Footage\Video Footage 2\[character]\[filename]`
+- **Backend API:** Serves video files via `http://localhost:5000/api/video/[character]/[filename]`
+- **HTML5 Video Thumbnails:** Uses `<video>` elements with `preload="metadata"` to show first frame
+- **Lazy Loading:** Only loads thumbnails when they're about to be visible in the viewport
+
+**For other operating systems:** The file paths in the backend controller would need to be updated to match the local file system structure.
 
 ### 1. Clone the Repository
 
