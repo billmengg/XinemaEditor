@@ -7,8 +7,10 @@ Xinema is a comprehensive tool designed to automatically match video essay scrip
 **Current Features:**
 - **Python MVP:** Script-to-clip matching using pretrained sentence embeddings
 - **Web Application:** Interactive React frontend with Node.js backend
-- **Clip Management:** File navigation, preview, and timeline visualization
-- **Video Thumbnails:** Video first-frame thumbnails using HTML5 video elements (Windows file paths)
+- **Media Library:** Full file navigation with search, filtering, and collapsible metadata
+- **Video Preview:** Real-time video playback with autoplay and error handling
+- **Video Thumbnails:** Lazy-loaded video first-frame thumbnails using HTML5 video elements (Windows file paths)
+- **Timeline Component:** Ready for drag-and-drop clip arrangement (planned)
 - **Matching Results:** Visual display of script-to-clip matches
 
 ---
@@ -45,11 +47,11 @@ XinemaEditor/
         │   └── index.html
         ├── src/
         │   ├── components/     # React components
-        │   │   ├── ClipList.js
-        │   │   ├── ClipPreview.js
-        │   │   ├── FileNav.js
-        │   │   ├── MatchResults.js
-        │   │   └── Timeline.js
+        │   │   ├── ClipList.js      # Media Library with search, filtering, thumbnails
+        │   │   ├── Preview.js       # Video preview component
+        │   │   ├── FileNav.js       # File navigation component
+        │   │   ├── MatchResults.js  # Script matching results
+        │   │   └── Timeline.js      # Timeline editor (planned)
         │   ├── App.js          # Main React app
         │   └── index.js        # React entry point
         ├── package.json        # Frontend dependencies
@@ -108,7 +110,7 @@ python xinema_mvp.py
 cd Xinema/backend
 npm install
 npm start
-# Server runs on http://localhost:3001
+# Server runs on http://localhost:5000
 ```
 
 #### Frontend Setup
@@ -121,11 +123,32 @@ npm start
 
 ### 4. Development Workflow
 
-1. **Start Backend**: `cd Xinema/backend && npm start`
-2. **Start Frontend**: `cd Xinema/frontend && npm start` (in a new terminal)
+1. **Start Backend**: `cd Xinema/backend && npm start` (runs on port 5000)
+2. **Start Frontend**: `cd Xinema/frontend && npm start` (runs on port 3000)
 3. **Access Application**: Open http://localhost:3000 in your browser
 
-### 5. Data Management
+### 5. Current Application Features
+
+#### **Media Library (ClipList.js)**
+- **Search & Filter**: Search by filename, character, or description
+- **Character Filtering**: Filter clips by character (Vi, Jinx, etc.)
+- **Season Filtering**: Filter clips by season (S1, S2, etc.)
+- **Collapsible Metadata**: Click "..." to expand/collapse additional columns
+- **Video Thumbnails**: Lazy-loaded first-frame thumbnails
+- **Numerical Sorting**: Proper sorting of clip IDs (VI.S1.E1.C01, etc.)
+
+#### **Video Preview (Preview.js)**
+- **Real-time Playback**: Streams videos directly from backend
+- **Autoplay**: Videos start playing immediately when selected
+- **Error Handling**: Graceful fallback for missing files
+- **Direct API Integration**: Uses backend video streaming API
+
+#### **File Navigation (FileNav.js)**
+- **Folder Structure**: Navigate through character folders
+- **File Browser**: Browse video files by character
+- **Integration**: Seamlessly connected with Media Library
+
+### 6. Data Management
 
 The application uses data files located in `Xinema/backend/data/`:
 - `clips.csv`: Video clip metadata with descriptions
@@ -175,8 +198,16 @@ cd ../frontend && npm install
 
 ---
 
-## Workflow (Current MVP)
+## Current Application Workflow
 
+### **Web Application (React + Node.js)**
+1. **Browse Clips**: Use Media Library to search and filter video clips
+2. **Preview Videos**: Click clips to preview in real-time
+3. **Navigate Files**: Use File Navigation to browse by character
+4. **Timeline Editing**: Drag clips to timeline for sequential arrangement (planned)
+5. **Export Project**: Save timeline as video sequence (planned)
+
+### **Python MVP (Script Matching)**
 1. Load data (`script.txt`, `clips.csv`, and `unique_characters.csv`)
 2. Load pretrained embedding model (`all-MiniLM-L6-v2`)
 3. Embed clip descriptions once
