@@ -1,18 +1,36 @@
 # Xinema - Video Essay Clip Matching Tool
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Node.js](https://img.shields.io/badge/Node.js-14%2B-green.svg)](https://nodejs.org/)
+[![Python](https://img.shields.io/badge/Python-3.7%2B-blue.svg)](https://python.org/)
+[![React](https://img.shields.io/badge/React-18.2.0-blue.svg)](https://reactjs.org/)
+[![Express](https://img.shields.io/badge/Express-4.21.2-green.svg)](https://expressjs.com/)
+
+> **⚠️ Early Development** - This project is currently in active development. Features may be incomplete or unstable.
+
 ## Overview
 
-Xinema is a comprehensive tool designed to automatically match video essay scripts with relevant video clips. The project includes both a Python-based MVP for core matching logic and a full-stack web application for interactive clip management and visualization.
+Xinema is an experimental tool for automatically matching video essay scripts with relevant video clips. The project includes both a Python-based MVP for core matching logic and a web application for interactive clip management.
 
-**Current Features:**
-- **Python MVP:** Script-to-clip matching using pretrained sentence embeddings
-- **Web Application:** Interactive React frontend with Node.js backend
-- **Clip Management:** File navigation, preview, and timeline visualization
-- **Matching Results:** Visual display of script-to-clip matches
+### **Current Features (In Development)**
+- **Python MVP:** Basic script-to-clip matching using sentence embeddings
+- **Web Application:** React frontend with Express.js backend (work in progress)
+- **Clip Management:** File navigation and preview system
+- **Matching Algorithm:** Cosine similarity-based matching
+
+## **Project Goals**
+
+This project aims to explore:
+- Automated script-to-clip matching using AI
+- Web-based interface for clip management
+- Scalable matching algorithms
+- Integration with video editing workflows
+
+**Note:** This is a research/experimental project. Results may vary and the system is not production-ready.
 
 ---
 
-## Project Structure
+## 📁 Project Structure
 
 ```
 XinemaEditor/
@@ -121,6 +139,40 @@ The application uses data files located in `Xinema/backend/data/`:
 
 ---
 
+## 🔌 **API Documentation**
+
+### **Backend Endpoints**
+
+| Method | Endpoint | Description | Parameters |
+|--------|----------|-------------|------------|
+| `GET` | `/api/clips` | Retrieve all video clips | `limit`, `offset` |
+| `GET` | `/api/clips/:id` | Get specific clip details | `id` |
+| `POST` | `/api/match` | Match script to clips | `script`, `clips` |
+| `GET` | `/api/script` | Load script content | - |
+| `POST` | `/api/upload` | Upload new clips | `file`, `metadata` |
+
+### **Frontend Components**
+
+| Component | Purpose | Props |
+|-----------|---------|-------|
+| `ClipList` | Display available clips | `clips`, `onSelect` |
+| `ClipPreview` | Preview selected clip | `clip`, `isPlaying` |
+| `FileNav` | Navigate file structure | `files`, `onNavigate` |
+| `MatchResults` | Show matching results | `matches`, `script` |
+| `Timeline` | Visual timeline display | `clips`, `duration` |
+
+---
+
+## 🛠️ **Technical Specifications**
+
+### **Technical Stack**
+- **Embedding Model:** `all-MiniLM-L6-v2` (experimental)
+- **Similarity Algorithm:** Cosine similarity
+- **Processing:** Basic batch processing
+- **Status:** Under development - performance metrics not yet established
+
+---
+
 ## Development & Git Best Practices
 
 ### Dependency Management
@@ -171,37 +223,50 @@ cd ../frontend && npm install
 
 ---
 
-## Future Plans (Scaling & Optimization)
+## **Development Status & Future Plans**
 
-### Constraints & Rules
-- No clip reuse
-- Clip duration trimming to fit script line
-- Episode/character order for narrative consistency
+### **Current Status (v0.x)**
+- [x] Basic Python MVP with sentence embeddings
+- [x] Initial web application structure
+- [x] File navigation system
+- [ ] Complete web interface functionality
+- [ ] Stable matching algorithm
+- [ ] Error handling and validation
 
-### Contextual Matching
-- Match sequences of script lines → sequences of clips
-- Consider surrounding lines for richer context
+### **Planned Features (Future)**
+- [ ] **Improved Matching**
+  - Better similarity algorithms
+  - Context-aware matching
+  - Performance optimizations
+- [ ] **Enhanced UI**
+  - Complete React components
+  - Real-time preview
+  - Better user experience
+- [ ] **Advanced Features**
+  - Multiple matching strategies
+  - Export functionality
+  - Integration capabilities
 
-### Global Optimization
-- Implement GRASP-style metaheuristic:
-  - Multiple candidate solutions with randomized greedy construction
-  - Local search (swap/reassign clips) to improve overall mapping
-  - Scoring function accounts for similarity, reuse, timing, order
-
-### AI Enhancements
-- Use LLM reranking for ambiguous matches
-- Enrich clip descriptions using vision models (BLIP, GPT-4V)
-- Integrate dialogue transcripts for more precise matching
-
-### Production-Ready
-- Move embeddings into a vector database (FAISS, Pinecone) for fast search
-- Modular pipeline ready for large-scale scripts & clips
-- Connect to video editing tools (MoviePy / FFmpeg) for automated assembly
+**Note:** Timeline is flexible as this is a research project.
 
 ---
 
-## Notes
+## **Additional Resources**
 
-- MVP uses pretrained embeddings, no training required
-- Designed to be modular so future constraints and optimization algorithms can be added without rewriting the core matching logic
-- Initial MVP focuses on simplicity to validate the concept before adding more complex features
+- 🛠️ **[Contributing Guide](./CONTRIBUTING.md)** - How to contribute
+- 📝 **[Changelog](./CHANGELOG.md)** - Version history
+- 🐛 **[Issues](https://github.com/billmengg/XinemaEditor/issues)** - Report bugs or suggest features
+
+## **Acknowledgments**
+
+- **Sentence Transformers** - For the embedding models
+- **React & Express.js** - For the web framework
+- **Open Source Community** - For the tools and libraries
+
+## **License**
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+**Note:** This is an experimental project in active development. Use at your own discretion.

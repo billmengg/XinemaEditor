@@ -1,0 +1,49 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        node-version: [16.x, 18.x]
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: |
+        cd Xinema/backend && npm ci
+        cd ../frontend && npm ci
+    
+    - name: Run linter
+      run: |
+        cd Xinema/backend && npm run lint
+        cd ../frontend && npm run lint
+    
+    - name: Check formatting
+      run: |
+        cd Xinema/backend && npm run format:check
+        cd ../frontend && npm run format:check
+    
+    - name: Run tests
+      run: |
+        cd Xinema/backend && npm test -- --coverage --watchAll=false
+        cd ../frontend && npm run test:coverage
+    
+    - name: Upload coverage reports
+      uses: codecov/codecov-action@v3
+      with:
+        files: ./Xinema/backend/coverage/lcov.info,./Xinema/frontend/coverage/lcov.info

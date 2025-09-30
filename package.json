@@ -1,0 +1,52 @@
+{
+  "name": "xinema-editor",
+  "version": "0.1.0",
+  "description": "AI-powered video essay clip matching tool",
+  "private": true,
+  "workspaces": [
+    "Xinema/backend",
+    "Xinema/frontend"
+  ],
+  "scripts": {
+    "install:all": "npm install && cd Xinema/backend && npm install && cd ../frontend && npm install",
+    "dev": "concurrently \"cd Xinema/backend && npm run dev\" \"cd Xinema/frontend && npm start\"",
+    "build": "cd Xinema/frontend && npm run build",
+    "test": "npm run test:backend && npm run test:frontend",
+    "test:backend": "cd Xinema/backend && npm test",
+    "test:frontend": "cd Xinema/frontend && npm test",
+    "lint": "npm run lint:backend && npm run lint:frontend",
+    "lint:backend": "cd Xinema/backend && npm run lint",
+    "lint:frontend": "cd Xinema/frontend && npm run lint",
+    "format": "npm run format:backend && npm run format:frontend",
+    "format:backend": "cd Xinema/backend && npm run format",
+    "format:frontend": "cd Xinema/frontend && npm run format"
+  },
+  "devDependencies": {
+    "concurrently": "^7.6.0",
+    "eslint": "^8.0.0",
+    "prettier": "^2.8.0"
+  },
+  "keywords": [
+    "video-editing",
+    "ai",
+    "machine-learning",
+    "clip-matching",
+    "sentence-embeddings",
+    "react",
+    "nodejs"
+  ],
+  "author": "William Meng <billmengg@example.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/billmengg/XinemaEditor.git"
+  },
+  "bugs": {
+    "url": "https://github.com/billmengg/XinemaEditor/issues"
+  },
+  "homepage": "https://github.com/billmengg/XinemaEditor#readme",
+  "engines": {
+    "node": ">=16.0.0",
+    "npm": ">=8.0.0"
+  }
+}
