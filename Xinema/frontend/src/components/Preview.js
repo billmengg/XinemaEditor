@@ -45,58 +45,45 @@ export default function Preview({ clip }) {
 
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
-      {/* Clip Info */}
-      <div style={{ marginBottom: "16px", fontSize: "14px" }}>
-        <div style={{ marginBottom: "8px", fontWeight: "600" }}>
-          {clip.filename}
-        </div>
-        <div style={{ marginBottom: "4px", color: "#666" }}>
-          <strong>Character:</strong> {clip.character}
-        </div>
-        <div style={{ marginBottom: "4px", color: "#666" }}>
-          <strong>Season:</strong> {clip.season} | <strong>Episode:</strong> {clip.episode}
-        </div>
-        <div style={{ marginBottom: "4px", color: "#666" }}>
-          <strong>Order:</strong> {clip.order} | <strong>Duration:</strong> {clip.duration}
-        </div>
-        <div style={{ color: "#666", fontSize: "12px" }}>
-          {clip.description}
-        </div>
-        <div style={{ color: "#999", fontSize: "10px", marginTop: "8px" }}>
-          Video URL: {videoPath}
-        </div>
+      {/* Filename Header */}
+      <div style={{ 
+        marginBottom: "12px", 
+        fontSize: "14px", 
+        fontWeight: "600",
+        color: "#333",
+        textAlign: "center"
+      }}>
+        {clip.filename}
       </div>
       
-      {/* Simple Video Preview */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-        <div style={{ 
-          flex: 1,
-          background: "#000", 
-          borderRadius: "6px",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          color: "#fff",
-          fontSize: "16px",
-          position: "relative",
-          overflow: "hidden",
-          minHeight: "200px"
-        }}>
-          <video
-            src={videoPath}
-            style={{
-              width: "100%",
-              height: "100%",
-              objectFit: "contain"
-            }}
-            controls
-            autoPlay
-            preload="metadata"
-            onLoad={handleVideoLoad}
-            onError={handleVideoError}
-            onCanPlay={handleVideoCanPlay}
-          />
-        </div>
+      {/* Video Preview */}
+      <div style={{ 
+        flex: 1,
+        background: "#000", 
+        borderRadius: "6px",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        color: "#fff",
+        fontSize: "16px",
+        position: "relative",
+        overflow: "hidden",
+        minHeight: "200px"
+      }}>
+        <video
+          src={videoPath}
+          style={{
+            width: "100%",
+            height: "100%",
+            objectFit: "contain"
+          }}
+          controls
+          autoPlay
+          preload="metadata"
+          onLoadedMetadata={handleVideoLoad}
+          onError={handleVideoError}
+          onCanPlay={handleVideoCanPlay}
+        />
       </div>
     </div>
   );

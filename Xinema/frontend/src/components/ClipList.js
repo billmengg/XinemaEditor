@@ -138,15 +138,19 @@ function filterClips(clips, search, selectedCharacter, selectedSeason) {
 export default function ClipList({ onClipSelect }) {
   const [clips, setClips] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [sortField, setSortField] = useState("order");
+  const [sortField, setSortField] = useState("id");
   const [sortDir, setSortDir] = useState("asc");
   const [search, setSearch] = useState("");
   const [selectedClip, setSelectedClip] = useState(null);
-  const [viewMode, setViewMode] = useState("table"); // "table" or "grid"
+  const [viewMode, setViewMode] = useState("grid"); // "table" or "grid"
   const [selectedCharacter, setSelectedCharacter] = useState("all");
   const [selectedSeason, setSelectedSeason] = useState("all");
   const [contextMenu, setContextMenu] = useState(null);
   const [columnsExpanded, setColumnsExpanded] = useState(false);
+  const [draggedClip, setDraggedClip] = useState(null);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragPosition, setDragPosition] = useState({ x: 0, y: 0 });
 
 
   useEffect(() => {
@@ -158,6 +162,33 @@ export default function ClipList({ onClipSelect }) {
     }
     fetchClips();
   }, []);
+
+  // Track mouse movement during drag
+  useEffect(() => {
+    const handleMouseMove = (e) => {
+      if (isDragging) {
+        setDragPosition({ x: e.clientX, y: e.clientY });
+      }
+    };
+
+    const handleMouseUp = () => {
+      if (isDragging) {
+        setDraggedClip(null);
+        setIsDragging(false);
+        setDragOffset({ x: 0, y: 0 });
+        setDragPosition({ x: 0, y: 0 });
+      }
+    };
+
+    if (isDragging) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      return () => {
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+      };
+    }
+  }, [isDragging]);
 
   // Get unique characters and seasons for navigation
   const characters = [...new Set(clips.map(clip => clip.character).filter(Boolean))].sort();
@@ -191,6 +222,21 @@ export default function ClipList({ onClipSelect }) {
     }
   };
 
+  const handleMouseDown = (e, clip) => {
+    e.preventDefault();
+    setDraggedClip(clip);
+    setIsDragging(true);
+    
+    const rect = e.currentTarget.getBoundingClientRect();
+    setDragOffset({
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top
+    });
+    
+    setDragPosition({ x: e.clientX, y: e.clientY });
+  };
+
+
   const toggleColumns = () => {
     setColumnsExpanded(!columnsExpanded);
   };
@@ -210,15 +256,53 @@ export default function ClipList({ onClipSelect }) {
     // TODO: Implement actual actions
   };
 
-  const handleDragStart = (e, clip) => {
-    e.dataTransfer.setData("application/json", JSON.stringify(clip));
-    e.dataTransfer.effectAllowed = "move";
-  };
 
   if (loading) return <div style={{padding:24}}>Loading media library</div>;
 
   return (
-    <div style={{ height: "100%", display: "flex", position: "relative", width: "100%" }}>
+    <div 
+      style={{ height: "100%", display: "flex", position: "relative", width: "100%" }}
+    >
+      {/* Drag Preview */}
+      {isDragging && draggedClip && (
+        <div
+          style={{
+            position: "fixed",
+            left: dragPosition.x - 100, // Center horizontally (half of 200px width)
+            top: dragPosition.y - 50,   // Center vertically (half of ~100px height)
+            zIndex: 1000,
+            pointerEvents: "none",
+            opacity: 0.8,
+            border: "2px solid #007bff",
+            borderRadius: "6px",
+            boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+            background: "white",
+            padding: "12px",
+            width: "200px",
+            transform: "scale(1.05)"
+          }}
+        >
+          {/* Lazy Loading Thumbnail */}
+          <LazyThumbnail 
+            clip={draggedClip}
+          />
+          
+          {/* Filename */}
+          <div style={{ 
+            marginTop: "8px", 
+            fontSize: "12px", 
+            fontWeight: "600",
+            color: "#333",
+            textAlign: "center",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap"
+          }}>
+            {draggedClip.filename}
+          </div>
+        </div>
+      )}
+
       {/* Context Menu */}
       {contextMenu && (
         <div
@@ -559,17 +643,20 @@ export default function ClipList({ onClipSelect }) {
               </thead>
               <tbody>
                 {sortedClips.map((clip, i) => (
-                  <tr 
-                    key={clip.id + "-" + i} 
-                    onClick={() => handleClipClick(clip)}
-                    onContextMenu={(e) => handleContextMenu(e, clip)}
-                    draggable
-                    onDragStart={(e) => handleDragStart(e, clip)}
+        <tr 
+          key={clip.id + "-" + i} 
+          onClick={() => handleClipClick(clip)}
+          onContextMenu={(e) => handleContextMenu(e, clip)}
+          onMouseDown={(e) => handleMouseDown(e, clip)}
                     style={{ 
                       background: selectedClip?.id === clip.id ? "#e3f2fd" : (i%2 ? "#fff" : "#f9f9f9"),
-                      cursor: "pointer",
-                      transition: "background 0.2s",
-                      borderBottom: "1px solid #eee"
+                      cursor: isDragging && draggedClip?.id === clip.id ? "grabbing" : "grab",
+                      transition: "all 0.2s",
+                      borderBottom: "1px solid #eee",
+                      border: draggedClip?.id === clip.id ? "2px solid #007bff" : "none",
+                      boxShadow: draggedClip?.id === clip.id ? "0 2px 8px rgba(0,123,255,0.3)" : "none",
+                      transform: draggedClip?.id === clip.id ? "scale(1.01)" : "scale(1)",
+                      opacity: isDragging && draggedClip?.id !== clip.id ? "0.6" : "1"
                     }}
                   >
                     {/* Filename column - always visible */}
@@ -666,20 +753,21 @@ export default function ClipList({ onClipSelect }) {
           {viewMode === "grid" && (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "12px" }}>
               {sortedClips.map((clip) => (
-                <div
-                  key={clip.id}
-                  onClick={() => handleClipClick(clip)}
-                  onContextMenu={(e) => handleContextMenu(e, clip)}
-                  draggable
-                  onDragStart={(e) => handleDragStart(e, clip)}
+        <div
+          key={clip.id}
+          onClick={() => handleClipClick(clip)}
+          onContextMenu={(e) => handleContextMenu(e, clip)}
+          onMouseDown={(e) => handleMouseDown(e, clip)}
                   style={{
-                    border: "1px solid #ddd",
+                    border: draggedClip?.id === clip.id ? "2px solid #007bff" : "1px solid #ddd",
                     borderRadius: "6px",
                     padding: "12px",
-                    cursor: "pointer",
+                    cursor: isDragging && draggedClip?.id === clip.id ? "grabbing" : "grab",
                     background: selectedClip?.id === clip.id ? "#e3f2fd" : "white",
                     transition: "all 0.2s",
-                    boxShadow: "0 1px 3px rgba(0,0,0,0.1)"
+                    boxShadow: draggedClip?.id === clip.id ? "0 4px 12px rgba(0,123,255,0.3)" : "0 1px 3px rgba(0,0,0,0.1)",
+                    transform: draggedClip?.id === clip.id ? "scale(1.02)" : "scale(1)",
+                    opacity: isDragging && draggedClip?.id !== clip.id ? "0.6" : "1"
                   }}
                 >
                   {/* Lazy Loading Thumbnail */}

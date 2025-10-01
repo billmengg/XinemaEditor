@@ -2,16 +2,55 @@ const fs = require('fs');
 const csv = require('csv-parser');
 const path = require('path');
 const thumbnail = require('node-thumbnail');
+const { exec } = require('child_process');
+const { promisify } = require('util');
+const execAsync = promisify(exec);
 
 // CSV path
 const csvPath = path.join(__dirname, '../data/clips.csv');
 
+// Function to get video duration using Windows PowerShell (fast)
+const getVideoDuration = async (videoPath) => {
+  try {
+    if (!fs.existsSync(videoPath)) {
+      return "0:00";
+    }
+    
+    // Use Windows PowerShell to get duration from video metadata
+    const command = `powershell -Command "Add-Type -AssemblyName System.Windows.Forms; $shell = New-Object -ComObject Shell.Application; $folder = $shell.Namespace((Get-Item '${videoPath}').DirectoryName); $file = $folder.ParseName((Get-Item '${videoPath}').Name); $duration = $folder.GetDetailsOf($file, 27); if ($duration -eq '') { $duration = '0:00' }; $duration"`;
+    
+    const { stdout } = await execAsync(command);
+    const duration = stdout.trim();
+    
+    // Clean up the duration string
+    if (duration && duration !== '0:00' && duration !== '') {
+      return duration;
+    }
+    
+    return "0:00";
+  } catch (error) {
+    console.error('Error getting video duration for', videoPath, ':', error.message);
+    return "0:00";
+  }
+};
 
-const getAllClips = (req, res) => {
-  const clips = [];
-  fs.createReadStream(csvPath)
-    .pipe(csv())
-    .on('data', (row) => {
+
+const getAllClips = async (req, res) => {
+  try {
+    const clips = [];
+    const rows = [];
+    
+    // First, read all CSV data
+    await new Promise((resolve, reject) => {
+      fs.createReadStream(csvPath)
+        .pipe(csv())
+        .on('data', (row) => rows.push(row))
+        .on('end', resolve)
+        .on('error', reject);
+    });
+    
+    // Process all rows quickly without duration detection for performance
+    const clips = rows.map((row) => {
       // Parse season, episode, order from the ID (format: XX.S1.E1.C01)
       let season = '', episode = '', order = '';
       const idMatch = row.id.match(/S(\d+)\.E(\d+)\.C(\d+)/i);
@@ -20,17 +59,22 @@ const getAllClips = (req, res) => {
         episode = `E${idMatch[2]}`;
         order = parseInt(idMatch[3], 10);
       }
-      clips.push({
+      
+      return {
         ...row,
         season,
         episode,
         order,
-        duration: "0:00", // Placeholder - would need video file analysis
+        duration: "0:00", // Lazy loaded - duration will be detected when needed
         thumbnail: null, // Placeholder - would need thumbnail generation
-      });
-    })
-    .on('end', () => res.json(clips))
-    .on('error', (err) => res.status(500).json({ error: err.message }));
+      };
+    });
+    
+    res.json(clips);
+  } catch (error) {
+    console.error('Error in getAllClips:', error);
+    res.status(500).json({ error: error.message });
+  }
 };
 
 const getVideoFile = (req, res) => {
@@ -116,8 +160,29 @@ const generateThumbnail = (req, res) => {
   res.send(placeholderSvg);
 };
 
+const getClipDuration = async (req, res) => {
+  try {
+    const { character, filename } = req.params;
+    
+    // Construct video path
+    const videoPath = path.join(
+      'C:', 'Users', 'William', 'Documents', 'YouTube', 'Video', 'Arcane Footage', 'Video Footage 2',
+      character, filename
+    );
+    
+    // Get actual duration using Windows PowerShell
+    const duration = await getVideoDuration(videoPath);
+    
+    res.json({ duration });
+  } catch (error) {
+    console.error('Error getting clip duration:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
 module.exports = { 
   getAllClips,
   getVideoFile,
-  generateThumbnail
+  generateThumbnail,
+  getClipDuration
 };
