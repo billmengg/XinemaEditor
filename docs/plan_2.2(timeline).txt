@@ -1,0 +1,197 @@
+# Timeline Component Plan
+
+## Overview
+The Timeline component is the core editing interface where users arrange clips into a sequential video sequence. It provides drag-and-drop functionality, clip manipulation, and playback controls.
+
+## ✅ COMPLETED FEATURES
+- Basic Timeline component structure
+- Timeline panel integration in main layout
+- Timeline placeholder content
+
+## 🎯 MVP TIMELINE FEATURES (MINIMAL)
+
+### 1. **Basic Timeline Structure**
+- **Horizontal timeline** with simple time ruler
+- **Single track** for video clips (no multi-track complexity)
+- **Basic scrollable timeline** (horizontal scroll only)
+- **Simple time markers** (seconds only)
+
+### 2. **Core Clip Management**
+- **Drag-and-drop** clips from Media Library to timeline
+- **Basic clip blocks** showing clip name and duration
+- **Sequential clip arrangement** (one after another)
+- **Remove clips** from timeline (click to delete)
+
+### 3. **Essential Interactions**
+- **Clip reordering** - drag to move clips left/right
+- **Basic clip selection** (click to select)
+- **Simple timeline navigation** (click to seek)
+
+### 4. **Basic Playback**
+- **Play/Pause** button for timeline playback
+- **Simple seek** - click timeline to jump to position
+- **Sequential playback** of clips in order
+
+### 5. **Minimal State Management**
+- **Timeline data structure** - simple array of clips with positions
+- **Basic timeline export** - generate list of clips for export
+- **Timeline persistence** - save/load simple timeline state
+
+## 🔧 TECHNICAL IMPLEMENTATION
+
+### **Component Architecture**
+```
+Timeline.js
+├── TimelineHeader (time ruler, zoom controls)
+├── TimelineTracks (clip tracks)
+│   ├── VideoTrack (main video clips)
+│   └── AudioTrack (future audio support)
+├── TimelinePlayhead (current position indicator)
+├── TimelineControls (playback controls)
+└── TimelineClip (individual clip representation)
+```
+
+### **MVP Data Structure**
+```javascript
+const timelineData = {
+  clips: [
+    {
+      id: "VI.S1.E1.C14",
+      character: "Vi",
+      filename: "VI.S1.E1.C14 Vi Gang Break Into Jayce's Lab.mp4",
+      startTime: 0,        // seconds from timeline start
+      duration: 5.2,      // clip duration in seconds
+      selected: false     // selection state
+    }
+  ],
+  playhead: 0,           // current playhead position
+  playing: false          // playback state
+};
+```
+
+### **MVP Key Functions**
+- `addClipToTimeline(clip)` - add clip from media library
+- `removeClipFromTimeline(clipId)` - remove clip from timeline
+- `moveClip(clipId, newStartTime)` - reposition clip
+- `playTimeline()` - start timeline playback
+- `pauseTimeline()` - pause timeline playback
+- `seekTimeline(time)` - jump to specific time
+- `exportTimeline()` - generate export data
+
+## 🎨 UI/UX DESIGN
+
+### **Timeline Layout**
+- **Header**: Time ruler with major/minor tick marks
+- **Tracks**: Horizontal tracks for different media types
+- **Clips**: Visual blocks showing clip thumbnails and duration
+- **Playhead**: Vertical line indicating current position
+- **Controls**: Playback controls below timeline
+
+### **Visual Design**
+- **Clip blocks**: Rounded rectangles with thumbnails
+- **Track colors**: Different colors for video/audio tracks
+- **Selection**: Highlighted borders for selected clips
+- **Hover effects**: Visual feedback on clip interaction
+- **Grid lines**: Subtle grid for alignment reference
+
+### **Responsive Behavior**
+- **Zoom levels**: 0.5x to 4x timeline zoom
+- **Scroll behavior**: Smooth horizontal scrolling
+- **Clip sizing**: Minimum/maximum clip widths
+- **Touch support**: Mobile-friendly drag interactions
+
+## 🔮 FUTURE ENHANCEMENTS
+
+### **Advanced Timeline Features**
+- **Multiple tracks** - separate video/audio tracks
+- **Track layers** - overlay multiple clips
+- **Keyframe animation** - clip property keyframes
+- **Timeline markers** - bookmark important positions
+- **Timeline regions** - group clips into sections
+- **Timeline templates** - save/load timeline layouts
+
+### **Advanced Editing**
+- **Clip trimming** - adjust in/out points
+- **Clip splitting** - cut clips into segments
+- **Clip merging** - combine adjacent clips
+- **Clip effects** - basic video effects
+- **Transitions** - crossfade between clips
+- **Audio sync** - synchronize audio with video
+
+### **Collaboration Features**
+- **Timeline sharing** - share timeline with others
+- **Version control** - timeline version history
+- **Comments** - add notes to timeline positions
+- **Real-time editing** - collaborative timeline editing
+
+## 📋 MVP IMPLEMENTATION PHASES
+
+### **Phase 1: Basic Timeline (Week 2)**
+- Timeline component structure
+- Drag-and-drop from Media Library
+- Basic clip representation
+- Simple playback controls
+- Timeline state management
+
+### **Phase 2: Core Interactions (Week 3)**
+- Clip selection and highlighting
+- Clip moving and reordering
+- Basic timeline navigation
+- Timeline export functionality
+- Timeline persistence
+
+### **Phase 3: Polish & Testing (Week 4)**
+- UI/UX refinements
+- Performance optimization
+- Error handling
+- User testing
+- Documentation
+
+## 🎯 SUCCESS CRITERIA
+
+### **MVP Functional Requirements**
+- ✅ Drag clips from Media Library to Timeline
+- ✅ Arrange clips in sequential order
+- ✅ Play timeline clips in sequence
+- ✅ Basic timeline navigation (seek, play/pause)
+- ✅ Save/load timeline projects
+- ✅ Export timeline as video sequence
+
+### **MVP Performance Requirements**
+- Handle 50+ clips in timeline smoothly
+- Responsive drag-and-drop interactions
+- Basic timeline scrolling
+- Fast timeline playback
+
+### **MVP User Experience**
+- Intuitive drag-and-drop workflow
+- Clear visual feedback for interactions
+- Easy clip selection and manipulation
+- Consistent UI with rest of application
+
+## 🔗 INTEGRATION POINTS
+
+### **With Media Library**
+- Drag-and-drop clip transfer
+- Clip metadata synchronization
+- Clip thumbnail display
+- Clip selection state
+
+### **With Preview Component**
+- Timeline playback preview
+- Clip preview on selection
+- Playhead position synchronization
+- Preview controls integration
+
+### **With Backend**
+- Timeline data persistence
+- Clip metadata retrieval
+- Export functionality
+- Project save/load
+
+---
+
+**Status**: Ready for implementation
+**Priority**: High (Core MVP feature)
+**Estimated Time**: 2-3 weeks
+**Dependencies**: Media Library, Preview components

@@ -12,21 +12,17 @@
 
 Xinema is an experimental tool for automatically matching video essay scripts with relevant video clips. The project includes both a Python-based MVP for core matching logic and a web application for interactive clip management.
 
-### **Current Features (In Development)**
-- **Python MVP:** Basic script-to-clip matching using sentence embeddings
-- **Web Application:** React frontend with Express.js backend (work in progress)
-- **Clip Management:** File navigation and preview system
-- **Matching Algorithm:** Cosine similarity-based matching
-
-## **Project Goals**
-
-This project aims to explore:
-- Automated script-to-clip matching using AI
-- Web-based interface for clip management
-- Scalable matching algorithms
-- Integration with video editing workflows
-
-**Note:** This is a research/experimental project. Results may vary and the system is not production-ready.
+**Current Features (Implemented):**
+- **Python MVP:** Complete script-to-clip matching using sentence embeddings
+- **Web Application:** Full React frontend with Express.js backend API
+- **Media Library:** Advanced clip management with search, filtering, and thumbnails
+- **Video Preview:** Real-time video playback with HTML5 video elements
+- **Resizable UI:** Professional 3-panel layout with drag-to-resize functionality
+- **File Navigation:** Character-based file organization and browsing
+- **API Endpoints:** RESTful API for clip management and data operations
+- **Development Tools:** ESLint, Prettier, Jest testing, GitHub Actions CI/CD
+- **Timeline Component:** Ready for drag-and-drop clip arrangement (planned)
+- **Matching Results:** Visual display of script-to-clip matches
 
 ---
 
@@ -35,43 +31,149 @@ This project aims to explore:
 ```
 XinemaEditor/
 ├── .gitignore                  # Git ignore rules (excludes node_modules, __pycache__, etc.)
-├── README.md                   # This file
-├── LICENSE                     # MIT License
-├── utils.py                    # Python helper functions
-├── xinema_mvp.py              # Python MVP script
-├── docs/                       # Documentation and planning files
-│   ├── plan_1(MVP).txt
-│   ├── plan_2.0(building_MVP).txt
-│   └── plan_2.1(File Nav)
-└── Xinema/                     # Web Application
-    ├── backend/                # Node.js/Express Backend
+├── .eslintrc.js               # ESLint configuration for code quality
+├── .prettierrc                # Prettier configuration for code formatting
+├── jest.config.js             # Jest testing configuration
+├── package.json               # Root workspace configuration with monorepo scripts
+├── README.md                  # This file
+├── LICENSE                    # MIT License
+├── CONTRIBUTING.md            # Contribution guidelines
+├── SECURITY.md                # Security policy and procedures
+├── utils.py                   # Python helper functions for data processing
+├── xinema_mvp.py             # Python MVP script for AI matching
+├── src/
+│   └── setupTests.js         # Jest testing setup for React components
+├── docs/                      # Comprehensive documentation
+│   ├── API.md                 # Complete API documentation with examples
+│   ├── DEVELOPMENT.md         # Development workflow and architecture guide
+│   ├── plan_1(MVP).txt       # Original MVP requirements and specifications
+│   ├── plan_2.0(building_MVP).txt  # Web application development plan
+│   ├── plan_2.1(File Nav)     # File navigation component specifications
+│   └── plan_2.2(timeline).txt # Timeline editor planning document
+├── .github/
+│   └── workflows/
+│       └── ci.yml             # GitHub Actions CI/CD pipeline
+└── Xinema/                    # Web Application (Monorepo workspace)
+    ├── backend/               # Node.js/Express Backend API
     │   ├── controllers/
-    │   │   └── fileController.js
-    │   ├── data/               # Data files
-    │   │   ├── clips.csv
-    │   │   ├── script.txt
-    │   │   └── unique_characters.csv
+    │   │   └── fileController.js    # Business logic for file operations
+    │   ├── data/               # Data storage (CSV files)
+    │   │   ├── clips.csv           # Video clip metadata (id, filename, description, etc.)
+    │   │   ├── script.txt          # Video essay script (one sentence per line)
+    │   │   └── unique_characters.csv # Character name mappings
     │   ├── routes/
-    │   │   └── fileRoutes.js
-    │   ├── package.json        # Backend dependencies
-    │   ├── package-lock.json   # Locked dependency versions
-    │   ├── server.js           # Express server
-    │   └── index.js            # Main backend entry point
-    └── frontend/               # React Frontend
+    │   │   └── fileRoutes.js        # API route definitions for file operations
+    │   ├── package.json            # Backend dependencies (Express, CORS, etc.)
+    │   ├── package-lock.json       # Locked dependency versions
+    │   ├── server.js               # Express server entry point (port 5000)
+    │   └── index.js                # Alternative backend entry point
+    └── frontend/               # React Frontend Application
         ├── public/
-        │   └── index.html
+        │   └── index.html          # HTML template for React app
         ├── src/
-        │   ├── components/     # React components
-        │   │   ├── ClipList.js
-        │   │   ├── ClipPreview.js
-        │   │   ├── FileNav.js
-        │   │   ├── MatchResults.js
-        │   │   └── Timeline.js
-        │   ├── App.js          # Main React app
-        │   └── index.js        # React entry point
-        ├── package.json        # Frontend dependencies
-        └── package-lock.json   # Locked dependency versions
+        │   ├── components/         # React UI components
+        │   │   ├── ClipList.js     # Media library with search, filtering, thumbnails
+        │   │   ├── Preview.js      # Video preview component with HTML5 video
+        │   │   ├── FileNav.js      # File navigation by character/folder
+        │   │   ├── MatchResults.js # Script-to-clip matching results display
+        │   │   └── Timeline.js     # Timeline editor for clip arrangement (planned)
+        │   ├── App.js              # Main React application with tab navigation
+        │   └── index.js            # React DOM entry point
+        ├── package.json            # Frontend dependencies (React, React-Scripts)
+        └── package-lock.json       # Locked dependency versions
 ```
+
+---
+
+## 🔧 **Component Functions & Architecture**
+
+### **Python MVP Components**
+- **`xinema_mvp.py`**: Main script that orchestrates the AI matching process
+  - Loads clips from CSV and script from text file
+  - Initializes sentence transformer model (all-MiniLM-L6-v2)
+  - Generates embeddings for clip descriptions
+  - Matches script sentences to clips using cosine similarity
+  - Outputs results to CSV for video assembly
+
+- **`utils.py`**: Helper functions for data processing and matching
+  - `load_clips_csv()`: Loads and parses clip metadata from CSV
+  - `load_script()`: Reads script file and splits into sentences
+  - `embed_texts()`: Generates embeddings using sentence transformers
+  - `match_script_to_clips()`: Performs similarity matching algorithm
+
+### **Backend API Components**
+- **`server.js`**: Express server entry point
+  - Configures CORS for cross-origin requests
+  - Sets up JSON parsing middleware
+  - Registers API routes and starts server on port 5000
+
+- **`routes/fileRoutes.js`**: API route definitions
+  - `/api/clips`: GET endpoint to retrieve all video clips
+  - `/api/clips/:id`: GET endpoint for specific clip details
+  - `/api/script`: GET/POST endpoints for script management
+  - `/api/match`: POST endpoint for script-to-clip matching
+
+- **`controllers/fileController.js`**: Business logic layer
+  - Handles file operations and data processing
+  - Manages CSV data parsing and serving
+  - Implements clip filtering and search functionality
+
+### **Frontend React Components**
+- **`App.js`**: Main application with tab-based navigation
+  - Implements resizable 3-panel layout (Premiere Pro style)
+  - Manages tab switching between Editor, Script Input, and Export
+  - Handles panel resizing with mouse drag functionality
+
+- **`ClipList.js`**: Media library component
+  - Displays video clips in grid/list view with thumbnails
+  - Implements search and filtering functionality
+  - Shows clip metadata (filename, character, description, duration)
+  - Handles clip selection and preview triggering
+
+- **`Preview.js`**: Video preview component
+  - Renders HTML5 video element for clip playback
+  - Implements autoplay and error handling
+  - Displays video thumbnails using first-frame capture
+  - Manages video controls and playback state
+
+- **`FileNav.js`**: File navigation component
+  - Organizes clips by character and folder structure
+  - Implements collapsible navigation tree
+  - Provides quick access to clip categories
+  - Handles file system navigation
+
+- **`MatchResults.js`**: Script matching results display
+  - Shows script-to-clip matching results
+  - Displays similarity scores and alternative matches
+  - Implements result filtering and sorting
+  - Handles match selection and preview
+
+- **`Timeline.js`**: Timeline editor component (planned)
+  - Drag-and-drop clip arrangement interface
+  - Visual timeline representation
+  - Clip sequencing and ordering
+  - Duration calculation and display
+
+### **Development Tools & Configuration**
+- **`.eslintrc.js`**: ESLint configuration for code quality
+  - React and React Hooks rules
+  - Custom linting rules for consistency
+  - Warning for unused variables and console logs
+
+- **`.prettierrc`**: Code formatting configuration
+  - Consistent code style enforcement
+  - Single quotes, 2-space indentation
+  - 80-character line width
+
+- **`jest.config.js`**: Testing framework configuration
+  - React testing environment setup
+  - Coverage thresholds (70%)
+  - Module mapping for CSS and assets
+
+- **`package.json`**: Root workspace configuration
+  - Monorepo management with workspaces
+  - Unified development scripts
+  - Concurrent development server setup
 
 ---
 
@@ -81,6 +183,20 @@ XinemaEditor/
 
 - **Node.js** (v14 or higher) and npm
 - **Python** (v3.7 or higher) and pip
+- **Windows file system** (for video file paths and thumbnails)
+
+**Note:** The thumbnail generation feature uses HTML5 video elements to display the first frame of video files. This approach works with Windows file paths and requires the video files to be accessible via the backend API. The current implementation is optimized for Windows file systems with the specific path structure used in this project.
+
+#### Windows-Specific Implementation
+
+The current thumbnail system is designed for Windows environments with the following characteristics:
+
+- **File Path Structure:** `C:\Users\William\Documents\YouTube\Video\Arcane Footage\Video Footage 2\[character]\[filename]`
+- **Backend API:** Serves video files via `http://localhost:5000/api/video/[character]/[filename]`
+- **HTML5 Video Thumbnails:** Uses `<video>` elements with `preload="metadata"` to show first frame
+- **Lazy Loading:** Only loads thumbnails when they're about to be visible in the viewport
+
+**For other operating systems:** The file paths in the backend controller would need to be updated to match the local file system structure.
 
 ### 1. Clone the Repository
 
@@ -111,7 +227,7 @@ python xinema_mvp.py
 cd Xinema/backend
 npm install
 npm start
-# Server runs on http://localhost:3001
+# Server runs on http://localhost:5000
 ```
 
 #### Frontend Setup
@@ -124,11 +240,32 @@ npm start
 
 ### 4. Development Workflow
 
-1. **Start Backend**: `cd Xinema/backend && npm start`
-2. **Start Frontend**: `cd Xinema/frontend && npm start` (in a new terminal)
+1. **Start Backend**: `cd Xinema/backend && npm start` (runs on port 5000)
+2. **Start Frontend**: `cd Xinema/frontend && npm start` (runs on port 3000)
 3. **Access Application**: Open http://localhost:3000 in your browser
 
-### 5. Data Management
+### 5. Current Application Features
+
+#### **Media Library (ClipList.js)**
+- **Search & Filter**: Search by filename, character, or description
+- **Character Filtering**: Filter clips by character (Vi, Jinx, etc.)
+- **Season Filtering**: Filter clips by season (S1, S2, etc.)
+- **Collapsible Metadata**: Click "..." to expand/collapse additional columns
+- **Video Thumbnails**: Lazy-loaded first-frame thumbnails
+- **Numerical Sorting**: Proper sorting of clip IDs (VI.S1.E1.C01, etc.)
+
+#### **Video Preview (Preview.js)**
+- **Real-time Playback**: Streams videos directly from backend
+- **Autoplay**: Videos start playing immediately when selected
+- **Error Handling**: Graceful fallback for missing files
+- **Direct API Integration**: Uses backend video streaming API
+
+#### **File Navigation (FileNav.js)**
+- **Folder Structure**: Navigate through character folders
+- **File Browser**: Browse video files by character
+- **Integration**: Seamlessly connected with Media Library
+
+### 6. Data Management
 
 The application uses data files located in `Xinema/backend/data/`:
 - `clips.csv`: Video clip metadata with descriptions
@@ -212,8 +349,16 @@ cd ../frontend && npm install
 
 ---
 
-## Workflow (Current MVP)
+## Current Application Workflow
 
+### **Web Application (React + Node.js)**
+1. **Browse Clips**: Use Media Library to search and filter video clips
+2. **Preview Videos**: Click clips to preview in real-time
+3. **Navigate Files**: Use File Navigation to browse by character
+4. **Timeline Editing**: Drag clips to timeline for sequential arrangement (planned)
+5. **Export Project**: Save timeline as video sequence (planned)
+
+### **Python MVP (Script Matching)**
 1. Load data (`script.txt`, `clips.csv`, and `unique_characters.csv`)
 2. Load pretrained embedding model (`all-MiniLM-L6-v2`)
 3. Embed clip descriptions once
@@ -247,7 +392,6 @@ cd ../frontend && npm install
   - Export functionality
   - Integration capabilities
 
-**Note:** Timeline is flexible as this is a research project.
 
 ---
 

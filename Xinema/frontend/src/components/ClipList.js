@@ -1,4 +1,109 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
+
+// Lazy loading thumbnail component
+const LazyThumbnail = ({ clip, onError }) => {
+  const [isVisible, setIsVisible] = useState(false);
+  const [isLoaded, setIsLoaded] = useState(false);
+  const [hasError, setHasError] = useState(false);
+  const imgRef = useRef(null);
+
+  const observerRef = useRef(null);
+
+  useEffect(() => {
+    if (imgRef.current) {
+      observerRef.current = new IntersectionObserver(
+        ([entry]) => {
+          if (entry.isIntersecting) {
+            setIsVisible(true);
+            observerRef.current.disconnect();
+          }
+        },
+        { 
+          rootMargin: '50px',
+          threshold: 0.1 
+        }
+      );
+      observerRef.current.observe(imgRef.current);
+    }
+
+    return () => {
+      if (observerRef.current) {
+        observerRef.current.disconnect();
+      }
+    };
+  }, []);
+
+  const handleError = useCallback((e) => {
+    setHasError(true);
+    setIsLoaded(false);
+    if (onError) onError();
+  }, [onError]);
+
+  const handleLoad = useCallback(() => {
+    setIsLoaded(true);
+    setHasError(false);
+  }, []);
+
+  return (
+    <div 
+      ref={imgRef}
+      style={{ 
+        width: "100%", 
+        height: "80px", 
+        background: "#e0e0e0", 
+        borderRadius: "4px",
+        marginBottom: "8px",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontSize: "24px",
+        overflow: "hidden",
+        position: "relative"
+      }}
+    >
+      {isVisible && !hasError && (
+        <video 
+          src={`http://localhost:5000/api/video/${clip.character}/${clip.filename}`}
+          style={{ 
+            width: "100%", 
+            height: "100%", 
+            objectFit: "cover", 
+            borderRadius: "4px",
+            opacity: isLoaded ? 1 : 0,
+            transition: "opacity 0.3s ease"
+          }}
+          muted
+          preload="metadata"
+          onError={handleError}
+          onLoadedMetadata={handleLoad}
+        />
+      )}
+      {(!isVisible || hasError) && (
+        <div style={{ 
+          display: "flex", 
+          width: "100%", 
+          height: "100%", 
+          alignItems: "center", 
+          justifyContent: "center" 
+        }}>
+          <span>🎬</span>
+        </div>
+      )}
+      {isVisible && !isLoaded && !hasError && (
+        <div style={{
+          position: "absolute",
+          top: "50%",
+          left: "50%",
+          transform: "translate(-50%, -50%)",
+          fontSize: "12px",
+          color: "#666"
+        }}>
+          Loading...
+        </div>
+      )}
+    </div>
+  );
+};
 
 // Utility for filtering/searching the clips
 function filterClips(clips, search, selectedCharacter, selectedSeason) {
@@ -30,7 +135,7 @@ function filterClips(clips, search, selectedCharacter, selectedSeason) {
   return filtered;
 }
 
-export default function ClipList() {
+export default function ClipList({ onClipSelect }) {
   const [clips, setClips] = useState([]);
   const [loading, setLoading] = useState(true);
   const [sortField, setSortField] = useState("order");
@@ -41,6 +146,8 @@ export default function ClipList() {
   const [selectedCharacter, setSelectedCharacter] = useState("all");
   const [selectedSeason, setSelectedSeason] = useState("all");
   const [contextMenu, setContextMenu] = useState(null);
+  const [columnsExpanded, setColumnsExpanded] = useState(false);
+
 
   useEffect(() => {
     async function fetchClips() {
@@ -60,8 +167,18 @@ export default function ClipList() {
   const sortedClips = [...filterClips(clips, search, selectedCharacter, selectedSeason)].sort((a, b) => {
     let valA = a[sortField];
     let valB = b[sortField];
-    if (typeof valA === "string") valA = valA.toLowerCase();
-    if (typeof valB === "string") valB = valB.toLowerCase();
+    
+    // Special handling for ID field - extract numerical part
+    if (sortField === "id") {
+      // Remove character prefix and convert to number for proper numerical sorting
+      valA = parseInt(valA.replace(/^[A-Za-z]+/, '')) || 0;
+      valB = parseInt(valB.replace(/^[A-Za-z]+/, '')) || 0;
+    } else {
+      // Handle other fields as strings
+      if (typeof valA === "string") valA = valA.toLowerCase();
+      if (typeof valB === "string") valB = valB.toLowerCase();
+    }
+    
     if (valA < valB) return sortDir === "asc" ? -1 : 1;
     if (valA > valB) return sortDir === "asc" ? 1 : -1;
     return 0;
@@ -69,6 +186,13 @@ export default function ClipList() {
 
   const handleClipClick = (clip) => {
     setSelectedClip(clip);
+    if (onClipSelect) {
+      onClipSelect(clip);
+    }
+  };
+
+  const toggleColumns = () => {
+    setColumnsExpanded(!columnsExpanded);
   };
 
   const handleContextMenu = (e, clip) => {
@@ -94,7 +218,7 @@ export default function ClipList() {
   if (loading) return <div style={{padding:24}}>Loading media library</div>;
 
   return (
-    <div style={{ display: "flex", height: "100vh", position: "relative" }}>
+    <div style={{ height: "100%", display: "flex", position: "relative", width: "100%" }}>
       {/* Context Menu */}
       {contextMenu && (
         <div
@@ -168,13 +292,16 @@ export default function ClipList() {
           onClick={() => setContextMenu(null)}
         />
       )}
-      {/* Left Panel - Folder Navigation */}
+      {/* Folder Navigation */}
       <div style={{ 
         width: "250px", 
+        minWidth: "250px",
+        maxWidth: "250px",
         padding: "16px", 
         borderRight: "1px solid #eee", 
         background: "#f8f9fa",
-        overflow: "auto"
+        overflow: "auto",
+        flexShrink: 0
       }}>
         <h3 style={{ margin: "0 0 16px 0", fontSize: "16px", fontWeight: "600" }}>Navigation</h3>
         
@@ -265,9 +392,10 @@ export default function ClipList() {
         </div>
       </div>
 
-      {/* Center Panel - Clip Browser */}
-      <div style={{ flex: "1", padding: "16px", borderRight: "1px solid #eee", overflow: "auto" }}>
-        <div style={{ marginBottom: "16px" }}>
+      {/* Clip Browser */}
+      <div style={{ flex: "1", borderRight: "1px solid #eee", display: "flex", flexDirection: "column", minWidth: 0, overflow: "hidden" }}>
+        {/* Fixed Header */}
+        <div style={{ padding: "16px", borderBottom: "1px solid #eee", background: "white" }}>
           <h2 style={{ margin: "0 0 16px 0", fontSize: "18px", fontWeight: "600" }}>Media Library</h2>
           
           {/* Search and Controls */}
@@ -299,17 +427,98 @@ export default function ClipList() {
             </button>
           </div>
 
+          {/* Table Controls */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ fontSize: "14px", fontWeight: "600" }}>
+              {sortedClips.length} clips found
+            </div>
+          </div>
+        </div>
+
+        {/* Scrollable Content */}
+        <div style={{ flex: 1, overflow: "auto", padding: "16px", minWidth: 0 }}>
+
           {/* Table View */}
           {viewMode === "table" && (
-            <table style={{ borderCollapse: "collapse", width: "100%", fontSize: "13px" }}>
+            <div style={{ position: "relative" }}>
+              <table style={{ borderCollapse: "collapse", width: "100%", fontSize: "13px", minWidth: columnsExpanded ? "800px" : "400px" }}>
               <thead>
                 <tr style={{ background: "#f6f6f6" }}>
-                  {["filename","id","character","season","episode","order","duration","description"].map((field) => (
+                  {/* Filename column - always visible */}
+                  <th
+                    onClick={() => {
+                      if (sortField === "filename") { setSortDir(sortDir === "asc" ? "desc" : "asc"); }
+                      else { setSortField("filename"); setSortDir("asc"); }
+                    }}
+                    style={{ 
+                      border: "1px solid #eee", 
+                      cursor: "pointer", 
+                      padding: "8px", 
+                      fontWeight: "600", 
+                      userSelect: "none",
+                      textAlign: "left",
+                      width: "400px",
+                      minWidth: "400px"
+                    }}
+                  >
+                    FILENAME {sortField === "filename" ? (sortDir === "asc" ? "↑" : "↓") : ""}
+                  </th>
+                  
+                  {/* Thumbnail column - always visible */}
+                  <th
+                    style={{ 
+                      border: "1px solid #eee", 
+                      padding: "1px", 
+                      fontWeight: "600", 
+                      textAlign: "center",
+                      width: "50px",
+                      minWidth: "50px",
+                      background: "#f6f6f6"
+                    }}
+                  >
+                    THUMBNAIL
+                  </th>
+                  
+                  {/* Expand/Collapse column - only visible when collapsed */}
+                  {!columnsExpanded && (
+                    <th
+                      onClick={toggleColumns}
+                      style={{ 
+                        border: "1px solid #eee", 
+                        cursor: "pointer", 
+                        padding: "8px 2px", 
+                        fontWeight: "600", 
+                        userSelect: "none",
+                        textAlign: "center",
+                        width: "20px",
+                        minWidth: "20px",
+                        background: "#f6f6f6"
+                      }}
+                      title="Expand columns"
+                    >
+                      ...
+                    </th>
+                  )}
+                  
+                  {/* Additional columns - only visible when expanded */}
+                  {columnsExpanded && [
+                    { field: "id", width: "120px" },
+                    { field: "character", width: "100px" },
+                    { field: "season", width: "80px" },
+                    { field: "episode", width: "80px" },
+                    { field: "order", width: "80px" },
+                    { field: "duration", width: "80px" },
+                    { field: "description", width: "200px" }
+                  ].map(({ field, width }) => (
                     <th
                       key={field}
                       onClick={() => {
-                        if (sortField === field) { setSortDir(sortDir === "asc" ? "desc" : "asc"); }
-                        else { setSortField(field); setSortDir("asc"); }
+                        if (field === "description") {
+                          toggleColumns(); // Collapse when clicking description header
+                        } else {
+                          if (sortField === field) { setSortDir(sortDir === "asc" ? "desc" : "asc"); }
+                          else { setSortField(field); setSortDir("asc"); }
+                        }
                       }}
                       style={{ 
                         border: "1px solid #eee", 
@@ -317,10 +526,33 @@ export default function ClipList() {
                         padding: "8px", 
                         fontWeight: "600", 
                         userSelect: "none",
-                        textAlign: "left"
+                        textAlign: "left",
+                        width: width,
+                        minWidth: width,
+                        background: field === "description" ? "#e3f2fd" : "#f6f6f6",
+                        position: "relative"
                       }}
                     >
-                      {field.toUpperCase()} {sortField === field ? (sortDir === "asc" ? "" : "") : ""}
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span>
+                          {field.toUpperCase()} {sortField === field ? (sortDir === "asc" ? "↑" : "↓") : ""}
+                        </span>
+                        {field === "description" && (
+                          <span 
+                            style={{ 
+                              fontSize: "16px", 
+                              fontWeight: "bold", 
+                              color: "#007bff",
+                              marginLeft: "8px"
+                            }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              console.log("Triangle clicked!");
+                              toggleColumns();
+                            }}
+                          >◀</span>
+                        )}
+                      </div>
                     </th>
                   ))}
                 </tr>
@@ -340,22 +572,94 @@ export default function ClipList() {
                       borderBottom: "1px solid #eee"
                     }}
                   >
-                    <td style={{ border: "1px solid #eee", padding: "8px", maxWidth: "200px", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {/* Filename column - always visible */}
+                    <td style={{ border: "1px solid #eee", padding: "8px", width: "400px", overflow: "hidden", textOverflow: "ellipsis" }}>
                       {clip.filename}
                     </td>
-                    <td style={{ border: "1px solid #eee", padding: "8px" }}>{clip.id}</td>
-                    <td style={{ border: "1px solid #eee", padding: "8px" }}>{clip.character}</td>
-                    <td style={{ border: "1px solid #eee", padding: "8px" }}>{clip.season}</td>
-                    <td style={{ border: "1px solid #eee", padding: "8px" }}>{clip.episode}</td>
-                    <td style={{ border: "1px solid #eee", padding: "8px" }}>{clip.order}</td>
-                    <td style={{ border: "1px solid #eee", padding: "8px" }}>{clip.duration}</td>
-                    <td style={{ border: "1px solid #eee", padding: "8px", maxWidth: "150px", overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {clip.description}
+                    
+                    {/* Thumbnail column - always visible */}
+                    <td style={{ 
+                      border: "1px solid #eee", 
+                      padding: "0px", 
+                      width: "50px", 
+                      textAlign: "center",
+                      background: "#f6f6f6"
+                    }}>
+                      <div style={{ 
+                        width: "120px", 
+                        height: "90px", 
+                        background: "#e0e0e0", 
+                        borderRadius: "6px",
+                        overflow: "hidden",
+                        margin: "0 auto",
+                        position: "relative"
+                      }}>
+                        <video 
+                          src={`http://localhost:5000/api/video/${clip.character}/${clip.filename}`}
+                          style={{ 
+                            width: "100%", 
+                            height: "100%", 
+                            objectFit: "cover"
+                          }}
+                          muted
+                          preload="metadata"
+                          onError={(e) => {
+                            e.target.style.display = "none";
+                            e.target.nextSibling.style.display = "flex";
+                          }}
+                        />
+                        <div style={{ 
+                          display: "none", 
+                          width: "100%", 
+                          height: "100%", 
+                          alignItems: "center", 
+                          justifyContent: "center",
+                          fontSize: "20px"
+                        }}>
+                          🎬
+                        </div>
+                      </div>
                     </td>
+                    
+                    {/* Expand/Collapse column - only visible when collapsed */}
+                    {!columnsExpanded && (
+                      <td style={{ 
+                        border: "1px solid #eee", 
+                        padding: "8px 2px", 
+                        width: "20px", 
+                        textAlign: "center",
+                        background: "#f6f6f6"
+                      }}>
+                        ...
+                      </td>
+                    )}
+                    
+                    {/* Additional columns - only visible when expanded */}
+                    {columnsExpanded && (
+                      <>
+                        <td style={{ border: "1px solid #eee", padding: "8px", width: "120px" }}>{clip.id}</td>
+                        <td style={{ border: "1px solid #eee", padding: "8px", width: "100px" }}>{clip.character}</td>
+                        <td style={{ border: "1px solid #eee", padding: "8px", width: "80px" }}>{clip.season}</td>
+                        <td style={{ border: "1px solid #eee", padding: "8px", width: "80px" }}>{clip.episode}</td>
+                        <td style={{ border: "1px solid #eee", padding: "8px", width: "80px" }}>{clip.order}</td>
+                        <td style={{ border: "1px solid #eee", padding: "8px", width: "80px" }}>{clip.duration}</td>
+                        <td style={{ 
+                          border: "1px solid #eee", 
+                          padding: "8px", 
+                          width: "200px", 
+                          overflow: "hidden", 
+                          textOverflow: "ellipsis"
+                        }}>
+                          {clip.description}
+                        </td>
+                      </>
+                    )}
                   </tr>
                 ))}
               </tbody>
-            </table>
+              </table>
+              
+            </div>
           )}
 
           {/* Grid View */}
@@ -378,28 +682,10 @@ export default function ClipList() {
                     boxShadow: "0 1px 3px rgba(0,0,0,0.1)"
                   }}
                 >
-                  {/* Thumbnail */}
-                  <div style={{ 
-                    width: "100%", 
-                    height: "80px", 
-                    background: "#e0e0e0", 
-                    borderRadius: "4px",
-                    marginBottom: "8px",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontSize: "24px"
-                  }}>
-                    {clip.thumbnail ? (
-                      <img 
-                        src={clip.thumbnail} 
-                        alt="Thumbnail" 
-                        style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "4px" }}
-                      />
-                    ) : (
-                      <span>🎬</span>
-                    )}
-                  </div>
+                  {/* Lazy Loading Thumbnail */}
+                  <LazyThumbnail 
+                    clip={clip}
+                  />
                   
                   <div style={{ fontWeight: "600", marginBottom: "4px", fontSize: "13px" }}>
                     {clip.filename}
@@ -423,55 +709,25 @@ export default function ClipList() {
               No clips found matching your search.
             </div>
           )}
+
         </div>
       </div>
 
-      {/* Right Panel - Clip Preview */}
-      <div style={{ flex: "0 0 300px", padding: "16px", background: "#fafafa" }}>
-        <h3 style={{ margin: "0 0 16px 0", fontSize: "16px" }}>Clip Preview</h3>
-        {selectedClip ? (
-          <div>
-            <div style={{ marginBottom: "12px" }}>
-              <strong>Filename:</strong> {selectedClip.filename}
-            </div>
-            <div style={{ marginBottom: "12px" }}>
-              <strong>ID:</strong> {selectedClip.id}
-            </div>
-            <div style={{ marginBottom: "12px" }}>
-              <strong>Character:</strong> {selectedClip.character}
-            </div>
-            <div style={{ marginBottom: "12px" }}>
-              <strong>Season:</strong> {selectedClip.season}
-            </div>
-            <div style={{ marginBottom: "12px" }}>
-              <strong>Episode:</strong> {selectedClip.episode}
-            </div>
-            <div style={{ marginBottom: "12px" }}>
-              <strong>Order:</strong> {selectedClip.order}
-            </div>
-            <div style={{ marginBottom: "12px" }}>
-              <strong>Description:</strong> {selectedClip.description}
-            </div>
-            <div style={{ 
-              width: "100%", 
-              height: "120px", 
-              background: "#e0e0e0", 
-              borderRadius: "4px",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: "#666",
-              fontSize: "14px"
-            }}>
-              Video Preview Placeholder
-            </div>
-          </div>
-        ) : (
-          <div style={{ color: "#666", textAlign: "center", padding: "20px" }}>
-          Select a clip to preview
-          </div>
-        )}
-      </div>
     </div>
   );
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
