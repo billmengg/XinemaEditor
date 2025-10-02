@@ -26,6 +26,7 @@ function App() {
     document.body.style.overflow = 'hidden';
     document.body.style.height = '100vh';
     document.body.style.width = '100vw';
+    document.body.style.userSelect = 'none'; // Disable text selection globally
 
     // Prevent Alt key from triggering browser menu
     document.addEventListener('keydown', preventAltKey, { passive: false });
@@ -33,11 +34,21 @@ function App() {
     
     // Prevent context menu
     document.addEventListener('contextmenu', preventContextMenu, { passive: false });
+    
+    // Prevent text selection events
+    const preventSelection = (e) => {
+      e.preventDefault();
+    };
+    
+    document.addEventListener('selectstart', preventSelection, { passive: false });
+    document.addEventListener('dragstart', preventSelection, { passive: false });
 
     return () => {
       document.removeEventListener('keydown', preventAltKey);
       document.removeEventListener('keyup', preventAltKey);
       document.removeEventListener('contextmenu', preventContextMenu);
+      document.removeEventListener('selectstart', preventSelection);
+      document.removeEventListener('dragstart', preventSelection);
     };
   }, []);
 

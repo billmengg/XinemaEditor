@@ -151,12 +151,31 @@ export default function ClipList({ onClipSelect }) {
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragPosition, setDragPosition] = useState({ x: 0, y: 0 });
+  const [isOverTimeline, setIsOverTimeline] = useState(false);
+  const [dragEndTime, setDragEndTime] = useState(0); // Track when drag ended
 
+  // Function to convert duration string to seconds
+  const parseDurationToSeconds = (durationStr) => {
+    if (!durationStr || durationStr === "0:00") return 5; // Default 5 seconds
+    
+    const parts = durationStr.split(':');
+    if (parts.length === 2) {
+      const minutes = parseInt(parts[0], 10);
+      const seconds = parseInt(parts[1], 10);
+      return minutes * 60 + seconds;
+    }
+    
+    return 5; // Default fallback
+  };
 
   useEffect(() => {
     async function fetchClips() {
       const resp = await fetch("http://localhost:5000/api/files");
       const data = await resp.json();
+      console.log('Received clips with durations:', data.slice(0, 3).map(clip => ({ 
+        filename: clip.filename, 
+        duration: clip.duration 
+      })));
       setClips(data);
       setLoading(false);
     }
@@ -168,15 +187,101 @@ export default function ClipList({ onClipSelect }) {
     const handleMouseMove = (e) => {
       if (isDragging) {
         setDragPosition({ x: e.clientX, y: e.clientY });
+        
+        // Check if over timeline
+        const timelineElement = document.querySelector('.timeline-content');
+        if (timelineElement) {
+          const timelineRect = timelineElement.getBoundingClientRect();
+          const mouseX = e.clientX;
+          const mouseY = e.clientY;
+          
+          // Check if mouse is over timeline area
+          const isOver = mouseX >= timelineRect.left && mouseX <= timelineRect.right &&
+                        mouseY >= timelineRect.top && mouseY <= timelineRect.bottom;
+          setIsOverTimeline(isOver);
+          
+          // Dispatch custom drag over event to timeline
+          if (isOver) {
+            const dragOverEvent = new CustomEvent('timelineDragOver', {
+              detail: {
+                clip: draggedClip,
+                clientX: mouseX,
+                clientY: mouseY,
+                ctrlKey: e.ctrlKey,
+                metaKey: e.metaKey
+              }
+            });
+            timelineElement.dispatchEvent(dragOverEvent);
+          } else {
+            // Dispatch drag leave event when not over timeline
+            const dragLeaveEvent = new CustomEvent('timelineDragLeave', {
+              detail: {
+                clip: draggedClip,
+                clientX: mouseX,
+                clientY: mouseY
+              }
+            });
+            timelineElement.dispatchEvent(dragLeaveEvent);
+          }
+        }
       }
     };
 
-    const handleMouseUp = () => {
-      if (isDragging) {
+    const handleMouseUp = (e) => {
+      if (isDragging && draggedClip) {
+        // Check if dropping over timeline
+        const timelineElement = document.querySelector('.timeline-content');
+        if (timelineElement) {
+          const timelineRect = timelineElement.getBoundingClientRect();
+          const mouseX = e.clientX;
+          const mouseY = e.clientY;
+          
+          // Check if mouse is over timeline area
+          if (mouseX >= timelineRect.left && mouseX <= timelineRect.right &&
+              mouseY >= timelineRect.top && mouseY <= timelineRect.bottom) {
+            
+            // Calculate track based on mouse position
+            // Use the same coordinate system as Timeline component
+            const relativeY = mouseY - timelineRect.top;
+            let targetTrack = 3; // Default to track 3 (highest)
+            
+            // Use the same track boundaries as Timeline component
+            if (relativeY >= 100 && relativeY < 150) {
+              targetTrack = 3; // Top track
+            } else if (relativeY >= 150 && relativeY < 200) {
+              targetTrack = 2; // Middle track
+            } else if (relativeY >= 200 && relativeY < 250) {
+              targetTrack = 1; // Bottom track
+            }
+            
+            // Create a synthetic drop event
+            const dropEvent = new CustomEvent('timelineDrop', {
+              detail: {
+                clip: draggedClip,
+                clientX: mouseX,
+                clientY: mouseY,
+                track: targetTrack
+              }
+            });
+            
+            // Dispatch the event to the timeline
+            timelineElement.dispatchEvent(dropEvent);
+          }
+        }
+        
+        // Clear any existing drag preview on timeline
+        const timelineElement2 = document.querySelector('.timeline-content');
+        if (timelineElement2) {
+          const clearEvent = new CustomEvent('timelineDragClear');
+          timelineElement2.dispatchEvent(clearEvent);
+        }
+        
         setDraggedClip(null);
         setIsDragging(false);
         setDragOffset({ x: 0, y: 0 });
         setDragPosition({ x: 0, y: 0 });
+        setIsOverTimeline(false);
+        setDragEndTime(Date.now()); // Record when drag ended
       }
     };
 
@@ -215,23 +320,65 @@ export default function ClipList({ onClipSelect }) {
     return 0;
   });
 
-  const handleClipClick = (clip) => {
-    setSelectedClip(clip);
-    if (onClipSelect) {
-      onClipSelect(clip);
+  const handleClipClick = (clip, e) => {
+    try {
+      // Prevent click if we just finished dragging (within 100ms)
+      if (isDragging || (Date.now() - dragEndTime) < 100) {
+        return;
+      }
+      
+      setSelectedClip(clip);
+      if (onClipSelect && typeof onClipSelect === 'function') {
+        onClipSelect(clip);
+      }
+    } catch (error) {
+      console.error('Error in handleClipClick:', error);
     }
   };
 
   const handleMouseDown = (e, clip) => {
     e.preventDefault();
-    setDraggedClip(clip);
+    
+    // Check if currentTarget exists
+    if (!e.currentTarget) {
+      console.error('currentTarget is null in handleMouseDown');
+      return;
+    }
+    
+    // Clear any existing drag preview on timeline
+    const timelineElement = document.querySelector('.timeline-content');
+    if (timelineElement) {
+      const clearEvent = new CustomEvent('timelineDragClear');
+      timelineElement.dispatchEvent(clearEvent);
+    }
+    
+    // Use duration from clip data (now provided by backend)
+    const durationInSeconds = parseDurationToSeconds(clip.duration);
+    
+    // Create clip with duration
+    const clipWithDuration = {
+      ...clip,
+      duration: durationInSeconds,
+      durationString: clip.duration
+    };
+    
+    setDraggedClip(clipWithDuration);
     setIsDragging(true);
     
-    const rect = e.currentTarget.getBoundingClientRect();
-    setDragOffset({
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top
-    });
+    try {
+      const rect = e.currentTarget.getBoundingClientRect();
+      setDragOffset({
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top
+      });
+    } catch (error) {
+      console.error('Error getting bounding rect:', error);
+      // Fallback to using clientX/Y directly
+      setDragOffset({
+        x: 0,
+        y: 0
+      });
+    }
     
     setDragPosition({ x: e.clientX, y: e.clientY });
   };
@@ -264,8 +411,10 @@ export default function ClipList({ onClipSelect }) {
       style={{ height: "100%", display: "flex", position: "relative", width: "100%" }}
     >
       {/* Drag Preview */}
-      {isDragging && draggedClip && (
+      {isDragging && draggedClip && !isOverTimeline && (
         <div
+          className="clip-drag-preview"
+          data-clip={JSON.stringify(draggedClip)}
           style={{
             position: "fixed",
             left: dragPosition.x - 100, // Center horizontally (half of 200px width)
@@ -645,7 +794,7 @@ export default function ClipList({ onClipSelect }) {
                 {sortedClips.map((clip, i) => (
         <tr 
           key={clip.id + "-" + i} 
-          onClick={() => handleClipClick(clip)}
+          onClick={(e) => handleClipClick(clip, e)}
           onContextMenu={(e) => handleContextMenu(e, clip)}
           onMouseDown={(e) => handleMouseDown(e, clip)}
                     style={{ 
@@ -755,7 +904,7 @@ export default function ClipList({ onClipSelect }) {
               {sortedClips.map((clip) => (
         <div
           key={clip.id}
-          onClick={() => handleClipClick(clip)}
+          onClick={(e) => handleClipClick(clip, e)}
           onContextMenu={(e) => handleContextMenu(e, clip)}
           onMouseDown={(e) => handleMouseDown(e, clip)}
                   style={{

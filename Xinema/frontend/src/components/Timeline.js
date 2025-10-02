@@ -5,9 +5,10 @@ export default function Timeline() {
   const [videoTracks, setVideoTracks] = useState([1, 2, 3]);
   const [audioTracks, setAudioTracks] = useState([1]);
   const [contextMenu, setContextMenu] = useState(null);
-  const [playheadPosition, setPlayheadPosition] = useState(50); // Percentage of timeline width (50% = 5 minutes)
+  const [playheadPosition, setPlayheadPosition] = useState(0); // Simple pixel position
   const [isDraggingPlayhead, setIsDraggingPlayhead] = useState(false);
-  const [playheadTime, setPlayheadTime] = useState(5); // Playhead time in minutes (5 minutes = center)
+  const [timelineClips, setTimelineClips] = useState([]); // Clips placed on timeline
+  const [dragPreview, setDragPreview] = useState(null); // Preview clip during drag
 
   const tools = [
     { id: 'cursor', icon: '↖', label: 'Cursor', active: true },
@@ -71,46 +72,69 @@ export default function Timeline() {
     setIsDraggingPlayhead(true);
   };
 
-  const handleTimelineClick = (e) => {
+  const handleTimelineMouseDown = (e) => {
     if (e.target.closest('.playhead')) return; // Don't move if clicking on playhead
+    
+    e.preventDefault(); // Prevent default selection behavior
     
     const timelineRect = e.currentTarget.getBoundingClientRect();
     const clickX = e.clientX - timelineRect.left;
     
-    // Calculate position relative to the track content area (after 76px track titles)
+    // Calculate position relative to track content area
     const trackContentStart = 76; // Track title width
-    const trackContentWidth = 400; // Fixed timeline content width (matches playhead calculation)
+    const bufferZone = 40; // Buffer zone width
+    const maxPosition = timelineRect.width - trackContentStart - bufferZone;
     const relativeX = clickX - trackContentStart;
     
-    if (relativeX >= 0 && relativeX <= trackContentWidth) {
-      const newPosition = (relativeX / trackContentWidth) * 100;
-      const newTime = positionToTime(newPosition);
-      
-      setPlayheadPosition(newPosition);
-      setPlayheadTime(newTime);
+    // Calculate maximum time constraint (10 minutes = 600 seconds)
+    const maxTimeInMinutes = 10;
+    const maxTimeInPixels = timeToPixel(maxTimeInMinutes);
+    const actualMaxPosition = Math.min(maxPosition, maxTimeInPixels);
+    
+    if (relativeX >= 0 && relativeX <= actualMaxPosition) {
+      setPlayheadPosition(relativeX);
+      // Start dragging mode so the playhead follows the mouse
+      setIsDraggingPlayhead(true);
     }
+  };
+
+  const handleTimelineClick = (e) => {
+    // Just prevent default behavior, don't start dragging on click
+    e.preventDefault();
   };
 
   const handleMouseMove = (e) => {
     if (isDraggingPlayhead) {
-      // Get the timeline container element
-      const timelineContainer = document.querySelector('.timeline-container');
-      if (!timelineContainer) return;
+      e.preventDefault(); // Prevent default selection behavior during dragging
       
-      const timelineRect = timelineContainer.getBoundingClientRect();
+      // Use the same element as the click handler to avoid jumping
+      const timelineContent = document.querySelector('.timeline-content');
+      if (!timelineContent) return;
+      
+      const timelineRect = timelineContent.getBoundingClientRect();
       const mouseX = e.clientX - timelineRect.left;
       
-      // Calculate position relative to the track content area (after 76px track titles)
+      // Calculate boundaries
       const trackContentStart = 76; // Track title width
-      const trackContentWidth = 400; // Fixed timeline content width (matches playhead calculation)
+      const bufferZone = 40; // Buffer zone width
+      const maxPosition = timelineRect.width - trackContentStart - bufferZone;
       const relativeX = mouseX - trackContentStart;
       
-      if (relativeX >= 0 && relativeX <= trackContentWidth) {
-        const newPosition = (relativeX / trackContentWidth) * 100;
-        const newTime = positionToTime(newPosition);
-        
-        setPlayheadPosition(newPosition);
-        setPlayheadTime(newTime);
+      // Calculate maximum time constraint (10 minutes = 600 seconds)
+      const maxTimeInMinutes = 10;
+      const maxTimeInPixels = timeToPixel(maxTimeInMinutes);
+      const actualMaxPosition = Math.min(maxPosition, maxTimeInPixels);
+      
+      // Handle boundary cases
+      if (relativeX < 0) {
+        // Mouse is to the left of the timeline - set playhead to left edge
+        setPlayheadPosition(0);
+      } else if (relativeX > actualMaxPosition) {
+        // Mouse is to the right of the timeline - set playhead to maximum time (10:00)
+        setPlayheadPosition(actualMaxPosition);
+      } else {
+        // Mouse is within bounds - follow the mouse
+        setPlayheadPosition(relativeX);
       }
     }
   };
@@ -119,48 +143,79 @@ export default function Timeline() {
     setIsDraggingPlayhead(false);
   };
 
+  // Handle drag over timeline
+  const handleTimelineDragOver = (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  };
 
-  const formatTime = (minutes) => {
+  // Handle drop on timeline
+  const handleTimelineDrop = (e) => {
+    e.preventDefault();
+    
+    try {
+      const clipData = JSON.parse(e.dataTransfer.getData('application/json'));
+      const timelineRect = e.currentTarget.getBoundingClientRect();
+      const dropX = e.clientX - timelineRect.left;
+      
+      // Calculate position relative to track content area
+      const trackContentStart = 76; // Track title width
+      const relativeX = dropX - trackContentStart;
+      
+      if (relativeX >= 0) {
+        // Convert pixel position to time
+        const startTime = pixelToTime(relativeX);
+        
+        // Create new clip with duration
+        const newClip = {
+          id: `clip_${Date.now()}`,
+          ...clipData,
+          startTime: startTime,
+          duration: clipData.duration || 5, // Default 5 seconds if no duration
+          track: 1, // Default to first video track
+          startPixel: relativeX,
+          widthPixel: timeToPixel(clipData.duration || 5) // Convert duration to pixels
+        };
+        
+        setTimelineClips(prev => [...prev, newClip]);
+      }
+    } catch (error) {
+      console.error('Error handling clip drop:', error);
+    }
+  };
+
+
+  // Convert pixel position to time (0-1888px to 0-10 minutes)
+  const pixelToTime = (pixels) => {
+    const totalPixels = 1888; // Total available width
+    const totalMinutes = 10; // Total timeline duration
+    const minutes = (pixels / totalPixels) * totalMinutes;
+    return minutes;
+  };
+
+  // Convert time to pixel position (0-10 minutes to 0-1888px)
+  const timeToPixel = (minutes) => {
+    const totalPixels = 1888; // Total available width
+    const totalMinutes = 10; // Total timeline duration
+    const pixels = (minutes / totalMinutes) * totalPixels;
+    return pixels;
+  };
+
+  // Format time with frames (60fps)
+  const formatTime = (pixels) => {
+    const minutes = pixelToTime(pixels);
     const totalSeconds = Math.floor(minutes * 60);
     const hours = Math.floor(totalSeconds / 3600);
     const mins = Math.floor((totalSeconds % 3600) / 60);
     const secs = totalSeconds % 60;
+    const frames = Math.floor((minutes * 60 - totalSeconds) * 60); // 60fps
     
     if (hours > 0) {
-      return `${hours}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+      return `${hours}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${frames.toString().padStart(2, '0')}`;
     } else {
-      return `${mins}:${secs.toString().padStart(2, '0')}`;
+      return `${mins}:${secs.toString().padStart(2, '0')}.${frames.toString().padStart(2, '0')}`;
     }
   };
-
-  // Convert time to position percentage (0-10 minutes)
-  const timeToPosition = (time) => {
-    return (time / 10) * 100;
-  };
-
-  // Convert position percentage to time (0-10 minutes)
-  const positionToTime = (position) => {
-    return (position / 100) * 10;
-  };
-
-  const generateTimeMarkers = () => {
-    const markers = [];
-    
-    // Generate 1-minute interval markers from 0 to 10 minutes
-    for (let time = 0; time <= 10; time += 1) {
-      markers.push({
-        time: time,
-        position: timeToPosition(time)
-      });
-    }
-    return markers;
-  };
-
-  // Update playhead position when playhead time changes
-  useEffect(() => {
-    const newPosition = timeToPosition(playheadTime);
-    setPlayheadPosition(newPosition);
-  }, [playheadTime]);
 
   // Handle document-level mouse events for dragging
   useEffect(() => {
@@ -174,6 +229,216 @@ export default function Timeline() {
       };
     }
   }, [isDraggingPlayhead]);
+
+  // Handle custom timeline drop events from ClipList
+  useEffect(() => {
+    const timelineElement = document.querySelector('.timeline-content');
+    if (timelineElement) {
+      const handleTimelineDropEvent = (e) => {
+        const { clip, clientX, clientY, track } = e.detail;
+        const timelineRect = timelineElement.getBoundingClientRect();
+        const dropX = clientX - timelineRect.left;
+        
+        // Calculate position relative to track content area
+        const trackContentStart = 76; // Track title width
+        const relativeX = dropX - trackContentStart;
+        
+        if (relativeX >= 0) {
+          // Convert pixel position to time
+          const startTime = pixelToTime(relativeX);
+          
+          // Use track from drop event, fallback to drag preview, then default to track 1
+          const targetTrack = track || (dragPreview ? dragPreview.track : 1);
+          
+          
+          // Create new clip with duration
+          const baseId = `clip_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          const clipDuration = clip.duration || 5; // Use actual duration from clip
+          const newClip = {
+            id: baseId,
+            ...clip,
+            startTime: startTime,
+            duration: clipDuration,
+            track: targetTrack,
+            startPixel: relativeX,
+            widthPixel: timeToPixel(clipDuration) // Convert actual duration to pixels
+          };
+          
+          setTimelineClips(prev => [...prev, newClip]);
+          
+          // If this is a multi-track clip, create additional clips for other tracks
+          if (dragPreview && dragPreview.multiTrack) {
+            const additionalTracks = [1, 2, 3].filter(t => t !== targetTrack);
+            const additionalClips = additionalTracks.map(trackNum => ({
+              ...newClip,
+              id: `${baseId}_track_${trackNum}`,
+              track: trackNum
+            }));
+            setTimelineClips(prev => [...prev, ...additionalClips]);
+          }
+        }
+        
+        // Clear drag preview
+        setDragPreview(null);
+      };
+      
+      const handleTimelineDragOver = (e) => {
+        e.preventDefault();
+        
+        // Check if there's a clip being dragged from ClipList
+        const draggedClip = document.querySelector('.clip-drag-preview');
+        if (draggedClip) {
+          const timelineRect = timelineElement.getBoundingClientRect();
+          const mouseX = e.clientX - timelineRect.left;
+          const mouseY = e.clientY - timelineRect.top;
+          const trackContentStart = 76;
+          const relativeX = mouseX - trackContentStart;
+          
+          // Check if mouse is over timeline area
+          if (relativeX >= 0 && mouseY >= 60) { // 60px to account for top bar and time ruler
+            // Get clip data from the drag preview element
+            const clipData = JSON.parse(draggedClip.dataset.clip || '{}');
+            const duration = clipData.duration || 5;
+            
+            // Calculate which track the mouse is over
+            // Tracks start at 60px and are 50px high each
+            const trackHeight = 50;
+            const trackStartY = 60;
+            const relativeY = mouseY - trackStartY;
+            
+            // Calculate track index (0-based from top)
+            const trackIndex = Math.floor(relativeY / trackHeight);
+            
+            // Convert to track number (1-based, counting from bottom)
+            // Track 1 is at the bottom (highest Y values), Track 3 is at the top (lowest Y values)
+            const targetTrack = Math.max(1, Math.min(3 - trackIndex, 3));
+            
+            setDragPreview({
+              startPixel: relativeX,
+              widthPixel: timeToPixel(duration),
+              character: clipData.character || 'Clip',
+              duration: duration,
+              track: targetTrack
+            });
+          } else {
+            // Clear preview if not over timeline
+            setDragPreview(null);
+          }
+        } else {
+          // Also check for custom drag events from ClipList
+          const customDragEvent = e.detail;
+          if (customDragEvent && customDragEvent.clip) {
+            const timelineRect = timelineElement.getBoundingClientRect();
+            const mouseX = e.clientX - timelineRect.left;
+            const mouseY = e.clientY - timelineRect.top;
+            const trackContentStart = 76;
+            const relativeX = mouseX - trackContentStart;
+            
+            if (relativeX >= 0 && mouseY >= 60) {
+              const duration = customDragEvent.clip.duration || 5;
+              
+              // Calculate which track the mouse is over
+              const trackHeight = 50;
+              const trackStartY = 60;
+              const trackIndex = Math.floor((mouseY - trackStartY) / trackHeight);
+              const targetTrack = Math.max(1, Math.min(trackIndex + 1, 3));
+              
+              setDragPreview({
+                startPixel: relativeX,
+                widthPixel: timeToPixel(duration),
+                character: customDragEvent.clip.character || 'Clip',
+                duration: duration,
+                track: targetTrack
+              });
+            }
+          }
+        }
+      };
+      
+      const handleTimelineDragLeave = (e) => {
+        // Only clear if leaving the timeline completely
+        const timelineRect = timelineElement.getBoundingClientRect();
+        const mouseX = e.clientX;
+        const mouseY = e.clientY;
+        
+        if (mouseX < timelineRect.left || mouseX > timelineRect.right || 
+            mouseY < timelineRect.top || mouseY > timelineRect.bottom) {
+          setDragPreview(null);
+        }
+      };
+      
+      const handleTimelineDragOverEvent = (e) => {
+        const { clip, clientX, clientY, ctrlKey, metaKey } = e.detail;
+        const timelineRect = timelineElement.getBoundingClientRect();
+        const mouseX = clientX - timelineRect.left;
+        const mouseY = clientY - timelineRect.top;
+        const trackContentStart = 76;
+        const relativeX = mouseX - trackContentStart;
+        
+        
+        if (relativeX >= 0 && mouseY >= 60) {
+          const duration = clip.duration || 5;
+          
+          
+          // Simple track calculation - just find the closest track to mouse
+          const trackHeight = 50;
+          const trackStartY = 60;
+          const relativeY = mouseY - trackStartY;
+          
+          // Find which track the mouse is closest to
+          let targetTrack = 3; // Default to track 3 (highest)
+          
+          if (mouseY >= 100 && mouseY < 150) {
+            targetTrack = 3; // Top track (100-150px from timeline top)
+          } else if (mouseY >= 150 && mouseY < 200) {
+            targetTrack = 2; // Middle track (150-200px from timeline top)
+          } else if (mouseY >= 200 && mouseY < 250) {
+            targetTrack = 1; // Bottom track (200-250px from timeline top)
+          }
+          
+          
+          // Check if Ctrl key is pressed for multi-track placement
+          const isMultiTrack = ctrlKey || metaKey;
+          
+          setDragPreview({
+            startPixel: relativeX,
+            widthPixel: timeToPixel(duration),
+            character: clip.character || 'Clip',
+            duration: duration,
+            track: targetTrack,
+            multiTrack: isMultiTrack,
+            mouseY: mouseY // Add mouse Y for debugging
+          });
+        } else {
+          setDragPreview(null);
+        }
+      };
+      
+      const handleTimelineDragLeaveEvent = (e) => {
+        setDragPreview(null);
+      };
+      
+      const handleTimelineDragClear = (e) => {
+        setDragPreview(null);
+      };
+      
+      timelineElement.addEventListener('timelineDrop', handleTimelineDropEvent);
+      timelineElement.addEventListener('dragover', handleTimelineDragOver);
+      timelineElement.addEventListener('dragleave', handleTimelineDragLeave);
+      timelineElement.addEventListener('timelineDragOver', handleTimelineDragOverEvent);
+      timelineElement.addEventListener('timelineDragLeave', handleTimelineDragLeaveEvent);
+      timelineElement.addEventListener('timelineDragClear', handleTimelineDragClear);
+      
+      return () => {
+        timelineElement.removeEventListener('timelineDrop', handleTimelineDropEvent);
+        timelineElement.removeEventListener('dragover', handleTimelineDragOver);
+        timelineElement.removeEventListener('dragleave', handleTimelineDragLeave);
+        timelineElement.removeEventListener('timelineDragOver', handleTimelineDragOverEvent);
+        timelineElement.removeEventListener('timelineDragLeave', handleTimelineDragLeaveEvent);
+        timelineElement.removeEventListener('timelineDragClear', handleTimelineDragClear);
+      };
+    }
+  }, []);
 
   return (
     <div 
@@ -258,17 +523,20 @@ export default function Timeline() {
 
       {/* Timeline Content */}
       <div 
+        className="timeline-content"
         style={{
           flex: 1,
           display: "flex",
           flexDirection: "column",
           background: "#f8f9fa",
           overflow: "auto",
-          position: "relative"
+          position: "relative",
+          userSelect: "none" // Prevent text selection during dragging
         }}
-        onClick={handleTimelineClick}
+        onMouseDown={handleTimelineMouseDown}
         onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
+        onDragOver={handleTimelineDragOver}
+        onDrop={handleTimelineDrop}
        >
          {/* Timeline Top Bar - Time indicator and controls */}
          <div style={{
@@ -281,7 +549,7 @@ export default function Timeline() {
            marginLeft: "76px", // Offset to align with track content area
            position: "relative"
          }}>
-           {/* Time Indicator */}
+           {/* Position Indicator */}
            <div style={{
              fontSize: "18px",
              fontWeight: "700",
@@ -292,11 +560,28 @@ export default function Timeline() {
              top: "50%",
              transform: "translateY(-50%)"
            }}>
-             {formatTime(playheadTime)}
+             {formatTime(playheadPosition)}
            </div>
+           
+           {/* Start and End Time Displays */}
+           <div style={{
+             position: "absolute",
+             right: "8px",
+             top: "50%",
+             transform: "translateY(-50%)",
+             display: "flex",
+             gap: "16px",
+             fontSize: "14px",
+             fontWeight: "600",
+             color: "#666"
+           }}>
+             <span>start: 0:00</span>
+             <span>end: 10:00</span>
+           </div>
+           
          </div>
          
-         {/* Timeline Time Ruler */}
+         {/* Timeline Ruler with Time Markers */}
          <div style={{
            height: "30px",
            background: "#f8f9fa",
@@ -310,44 +595,49 @@ export default function Timeline() {
            overflow: "hidden"
          }}>
           {/* Time Markers */}
-          {generateTimeMarkers().map((marker, index) => (
-            <div
-              key={index}
-              style={{
-                position: "absolute",
-                left: `${marker.position}%`,
-                top: 0,
-                bottom: 0,
-                width: "1px",
-                background: "#999",
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                justifyContent: "flex-start",
-                paddingTop: "4px",
-                transition: "all 0.2s ease-out"
-              }}
-            >
-              <div style={{
-                fontSize: "10px",
-                color: "#666",
-                background: "#f8f9fa",
-                padding: "0 2px",
-                whiteSpace: "nowrap",
-                transition: "all 0.2s ease-out"
-              }}>
-                {formatTime(marker.time)}
+          {Array.from({ length: 11 }, (_, i) => {
+            const time = i; // 0, 1, 2, ..., 10 minutes
+            // Calculate position in pixels within available area (excluding buffer zone)
+            const bufferZone = 40; // Buffer zone width in pixels
+            const availableWidth = 1888; // Available width in pixels (1892 - 4px adjustment)
+            const position = (time / 10) * availableWidth; // Position in pixels
+            return (
+              <div
+                key={i}
+                style={{
+                  position: "absolute",
+                  left: `${position}px`,
+                  top: 0,
+                  bottom: 0,
+                  width: "1px",
+                  background: "#999",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "flex-start",
+                  paddingTop: "4px"
+                }}
+              >
+                <div style={{
+                  fontSize: "10px",
+                  color: "#666",
+                  background: "#f8f9fa",
+                  padding: "0 2px",
+                  whiteSpace: "nowrap"
+                }}>
+                  {time}:00
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
          {/* Playhead */}
          <div
            className="playhead"
            style={{
              position: "absolute",
-             left: `${76 + (playheadPosition / 100) * 400}px`, // Simple fixed calculation
-             top: 0,
+             left: `${76 + playheadPosition}px`, // Simple pixel positioning
+             top: "60px", // Start below top bar (30px) and time ruler (30px)
              bottom: 0,
              width: "2px",
              background: "#007bff",
@@ -430,7 +720,64 @@ export default function Timeline() {
              <div style={{
                flex: 1,
                background: "#f8f9fa",
+               position: "relative"
              }}>
+               {/* Render clips on this track */}
+               {timelineClips
+                 .filter(clip => clip.track === trackNum)
+                 .map(clip => (
+                   <div
+                     key={clip.id}
+                     style={{
+                       position: "absolute",
+                       left: `${clip.startPixel}px`,
+                       top: "5px",
+                       bottom: "5px",
+                       width: `${clip.widthPixel}px`,
+                       background: "#007bff",
+                       border: "1px solid #0056b3",
+                       borderRadius: "3px",
+                       display: "flex",
+                       alignItems: "center",
+                       justifyContent: "center",
+                       color: "white",
+                       fontSize: "10px",
+                       fontWeight: "600",
+                       cursor: "pointer",
+                       userSelect: "none"
+                     }}
+                     title={`${clip.character} - ${clip.filename} (${clip.duration}s)`}
+                   >
+                     {clip.character}
+                   </div>
+                 ))}
+               
+               {/* Drag Preview - show only on target track */}
+               {dragPreview && dragPreview.track === trackNum && (
+                 <div
+                   style={{
+                     position: "absolute",
+                     left: `${dragPreview.startPixel}px`,
+                     top: "5px",
+                     bottom: "5px",
+                     width: `${dragPreview.widthPixel}px`,
+                     background: "rgba(0, 123, 255, 0.4)",
+                     border: "2px dashed #007bff",
+                     borderRadius: "3px",
+                     display: "flex",
+                     alignItems: "center",
+                     justifyContent: "center",
+                     color: "#007bff",
+                     fontSize: "10px",
+                     fontWeight: "600",
+                     pointerEvents: "none",
+                     userSelect: "none",
+                     zIndex: 10
+                   }}
+                 >
+                   {dragPreview.character}
+                 </div>
+               )}
              </div>
            </div>
          ))}
@@ -504,6 +851,18 @@ export default function Timeline() {
            bottom: 0,
            width: "2px",
            background: "rgba(0,0,0,0.3)",
+           zIndex: 5,
+           pointerEvents: "none"
+         }} />
+         
+         {/* Right Edge Buffer Zone */}
+         <div style={{
+           position: "absolute",
+           right: "0px",
+           top: "60px", // Start below the top bar (30px) and time ruler (30px)
+           bottom: 0,
+           width: "40px", // Buffer zone width
+           background: "rgba(0,0,0,0.2)",
            zIndex: 5,
            pointerEvents: "none"
          }} />
