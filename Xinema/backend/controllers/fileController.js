@@ -13,7 +13,6 @@ const csvPath = path.join(__dirname, '../data/clips.csv');
 const getVideoDuration = async (videoPath) => {
   try {
     if (!fs.existsSync(videoPath)) {
-      console.log(`File not found: ${videoPath}`);
       return "0:00";
     }
     
@@ -24,7 +23,6 @@ const getVideoDuration = async (videoPath) => {
     const durationInSeconds = parseFloat(stdout.trim());
     
     if (isNaN(durationInSeconds) || durationInSeconds <= 0) {
-      console.log(`Invalid duration for ${videoPath}: ${stdout.trim()}`);
       return "0:00";
     }
     
@@ -33,7 +31,6 @@ const getVideoDuration = async (videoPath) => {
     const seconds = Math.floor(durationInSeconds % 60);
     const duration = `${minutes}:${seconds.toString().padStart(2, '0')}`;
     
-    console.log(`Duration for ${videoPath}: ${duration} (${durationInSeconds}s)`);
     return duration;
   } catch (error) {
     console.error('Error getting video duration for', videoPath, ':', error.message);
@@ -55,8 +52,8 @@ const getAllClips = async (req, res) => {
         .on('error', reject);
     });
     
-    // Process all rows with actual duration detection
-    const clips = await Promise.all(rows.map(async (row) => {
+    // Process all rows without async operations for faster loading
+    const clips = rows.map((row) => {
       // Parse season, episode, order from the ID (format: XX.S1.E1.C01)
       let season = '', episode = '', order = '';
       const idMatch = row.id.match(/S(\d+)\.E(\d+)\.C(\d+)/i);
@@ -66,28 +63,16 @@ const getAllClips = async (req, res) => {
         order = parseInt(idMatch[3], 10);
       }
       
-      // Get actual duration from video file
-      const videoPath = path.join(
-        'C:', 'Users', 'William', 'Documents', 'YouTube', 'Video', 'Arcane Footage', 'Video Footage 2',
-        row.character, row.filename
-      );
-      
-      console.log(`Checking file: ${videoPath}`);
-      console.log(`File exists: ${fs.existsSync(videoPath)}`);
-      
-      // For testing - return a hardcoded duration
-      const duration = "2:30"; // 2 minutes 30 seconds
-      console.log(`Duration for ${row.character}/${row.filename}: ${duration}`);
-      
+      // Return clip data without any file system operations
       return {
         ...row,
         season,
         episode,
         order,
-        duration: duration,
+        duration: "0:00", // Placeholder - will be loaded when needed
         thumbnail: null, // Placeholder - would need thumbnail generation
       };
-    }));
+    });
     
     res.json(clips);
   } catch (error) {

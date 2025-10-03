@@ -5,15 +5,41 @@ export default function Timeline() {
   const [videoTracks, setVideoTracks] = useState([1, 2, 3]);
   const [audioTracks, setAudioTracks] = useState([1]);
   const [contextMenu, setContextMenu] = useState(null);
-  const [playheadPosition, setPlayheadPosition] = useState(0); // Simple pixel position
+  const [playheadPosition, setPlayheadPosition] = useState(0); // Frame position
   const [isDraggingPlayhead, setIsDraggingPlayhead] = useState(false);
+  const [dragStartPlayheadPosition, setDragStartPlayheadPosition] = useState(null); // Playhead position when drag starts
   const [timelineClips, setTimelineClips] = useState([]); // Clips placed on timeline
   const [dragPreview, setDragPreview] = useState(null); // Preview clip during drag
+  const [magneticPoints, setMagneticPoints] = useState(new Map()); // Universal magnetic points storage
+  const [showMagneticDebug, setShowMagneticDebug] = useState(false); // Show magnetic debug
+  
+  // MAGNETIC OFFSET - Adjust this value to fix magnetic point positioning (in pixels)
+  const MAGNETIC_OFFSET_PIXELS = 95; // Change this value to adjust where magnetic points appear
+  
+  // BAKED-IN OFFSET - This is baked into orange lines to show correct magnetic boundaries
+  const BAKED_MAGNETIC_OFFSET = 95; // This offset is permanently applied to orange lines
+  
+  // PLAYHEAD DRAG OFFSET - Adjusts where red lines appear relative to playhead while dragging
+  const PLAYHEAD_DRAG_OFFSET = 95; // Increase this to move red lines closer to playhead
+  
+  // Function to get the actual timeline start position (device-independent)
+  const getActualTimelineStart = () => {
+    const timelineElement = document.querySelector('.timeline-content');
+    if (timelineElement) {
+      const timelineRect = timelineElement.getBoundingClientRect();
+      const parentRect = timelineElement.parentElement?.getBoundingClientRect();
+      if (parentRect) {
+        return timelineRect.left - parentRect.left; // Actual offset from parent
+      }
+    }
+    return 76; // Fallback to hardcoded value
+  };
 
   const tools = [
     { id: 'cursor', icon: '↖', label: 'Cursor', active: true },
     { id: 'cut', icon: '✂', label: 'Cut', active: false },
-    { id: 'zoom', icon: '🔍', label: 'Zoom', active: false }
+    { id: 'zoom', icon: '🔍', label: 'Zoom', active: false },
+    { id: 'magnetic', icon: '🧲', label: 'Magnetic Debug', active: showMagneticDebug, onClick: () => setShowMagneticDebug(!showMagneticDebug) }
   ];
 
   const addVideoTrack = () => {
@@ -82,17 +108,19 @@ export default function Timeline() {
     
     // Calculate position relative to track content area
     const trackContentStart = 76; // Track title width
-    const bufferZone = 40; // Buffer zone width
+    const bufferZone = 38; // Buffer zone width
     const maxPosition = timelineRect.width - trackContentStart - bufferZone;
     const relativeX = clickX - trackContentStart;
     
     // Calculate maximum time constraint (10 minutes = 600 seconds)
-    const maxTimeInMinutes = 10;
+    const maxTimeInMinutes = 10.2;
     const maxTimeInPixels = timeToPixel(maxTimeInMinutes);
     const actualMaxPosition = Math.min(maxPosition, maxTimeInPixels);
     
     if (relativeX >= 0 && relativeX <= actualMaxPosition) {
-      setPlayheadPosition(relativeX);
+      // Convert pixel position to frame position
+      const framePosition = pixelsToFrames(relativeX);
+      setPlayheadPosition(framePosition);
       // Start dragging mode so the playhead follows the mouse
       setIsDraggingPlayhead(true);
     }
@@ -116,7 +144,7 @@ export default function Timeline() {
       
       // Calculate boundaries
       const trackContentStart = 76; // Track title width
-      const bufferZone = 40; // Buffer zone width
+      const bufferZone = 37; // Buffer zone width
       const maxPosition = timelineRect.width - trackContentStart - bufferZone;
       const relativeX = mouseX - trackContentStart;
       
@@ -125,16 +153,19 @@ export default function Timeline() {
       const maxTimeInPixels = timeToPixel(maxTimeInMinutes);
       const actualMaxPosition = Math.min(maxPosition, maxTimeInPixels);
       
+      
       // Handle boundary cases
       if (relativeX < 0) {
         // Mouse is to the left of the timeline - set playhead to left edge
         setPlayheadPosition(0);
       } else if (relativeX > actualMaxPosition) {
         // Mouse is to the right of the timeline - set playhead to maximum time (10:00)
-        setPlayheadPosition(actualMaxPosition);
+        const maxFramePosition = pixelsToFrames(actualMaxPosition);
+        setPlayheadPosition(maxFramePosition);
       } else {
-        // Mouse is within bounds - follow the mouse
-        setPlayheadPosition(relativeX);
+        // Mouse is within bounds - follow the mouse (convert to frames)
+        const framePosition = pixelsToFrames(relativeX);
+        setPlayheadPosition(framePosition);
       }
     }
   };
@@ -150,7 +181,7 @@ export default function Timeline() {
   };
 
   // Handle drop on timeline
-  const handleTimelineDrop = (e) => {
+  const handleTimelineDrop = async (e) => {
     e.preventDefault();
     
     try {
@@ -163,21 +194,60 @@ export default function Timeline() {
       const relativeX = dropX - trackContentStart;
       
       if (relativeX >= 0) {
-        // Convert pixel position to time
-        const startTime = pixelToTime(relativeX);
+        // Create new clip with duration (convert to frames)
+        // Use the duration that was already loaded in ClipList (via lazy loading)
+        let durationInSeconds = 5; // Default fallback
         
-        // Create new clip with duration
+        if (clipData.duration && clipData.duration !== "0:00") {
+          const durationStr = clipData.duration.toString();
+          const parts = durationStr.split(':');
+          if (parts.length === 2) {
+            const minutes = parseInt(parts[0]);
+            const seconds = parseInt(parts[1]);
+            durationInSeconds = minutes * 60 + seconds;
+          }
+        }
+        
+        const durationInFrames = timeToFrames(durationInSeconds); // Convert seconds to frames
+        
+        // Calculate start and end positions in frames
+        const startFrames = pixelsToFrames(relativeX);
+        const endFrames = startFrames + durationInFrames;
+        
+        // Apply magnetism to snap to nearby elements (all in frames)
+        const snappedStartFrames = applyMagnetism(startFrames, 10, 1, framesToPixels(durationInFrames));
+        const snappedEndFrames = snappedStartFrames + durationInFrames;
+        
+        // Convert to pixels for display
+        const startPixel = framesToPixels(snappedStartFrames);
+        const endPixel = framesToPixels(snappedEndFrames);
+        const widthPixel = endPixel - startPixel;
+        
+        // Convert pixel position to time
+        const startTime = pixelToTime(startPixel);
+        
         const newClip = {
           id: `clip_${Date.now()}`,
-          ...clipData,
+          // Don't spread clipData to avoid overriding calculated properties
+          character: clipData.character,
+          filename: clipData.filename,
           startTime: startTime,
-          duration: clipData.duration || 5, // Default 5 seconds if no duration
+          duration: durationInSeconds,
           track: 1, // Default to first video track
-          startPixel: relativeX,
-          widthPixel: timeToPixel(clipData.duration || 5) // Convert duration to pixels
+          startPixel: startPixel,
+          endPixel: endPixel,
+          widthPixel: widthPixel,
+          startFrames: snappedStartFrames,
+          endFrames: snappedEndFrames,
+          durationFrames: durationInFrames
         };
         
-        setTimelineClips(prev => [...prev, newClip]);
+          setTimelineClips(prev => {
+            const updatedClips = [...prev, newClip];
+            // Update magnetic points whenever clips change
+            updateMagneticPointsFromClips(updatedClips);
+            return updatedClips;
+          });
       }
     } catch (error) {
       console.error('Error handling clip drop:', error);
@@ -185,23 +255,211 @@ export default function Timeline() {
   };
 
 
-  // Convert pixel position to time (0-1888px to 0-10 minutes)
+  // Frame-based coordinate system (60 fps)
+  const FRAMES_PER_SECOND = 60;
+  const TIMELINE_DURATION_SECONDS = 600; // 10 minutes
+  const TIMELINE_TOTAL_FRAMES = TIMELINE_DURATION_SECONDS * FRAMES_PER_SECOND; // 36,000 frames
+  const TIMELINE_WIDTH_PIXELS = 1890; // Total timeline width in pixels
+  
+  // DISPLAY CONVERSION: Frames to pixels (ONLY for visual display)
+  const framesToPixels = (frames) => {
+    return (frames / TIMELINE_TOTAL_FRAMES) * TIMELINE_WIDTH_PIXELS;
+  };
+  
+  // INPUT CONVERSION: Pixels to frames (ONLY for mouse input)
+  const pixelsToFrames = (pixels) => {
+    return Math.round((pixels / TIMELINE_WIDTH_PIXELS) * TIMELINE_TOTAL_FRAMES);
+  };
+  
+  // Convert frames to time (seconds)
+  const framesToTime = (frames) => {
+    return frames / FRAMES_PER_SECOND;
+  };
+  
+  // Convert time (seconds) to frames
+  const timeToFrames = (seconds) => {
+    return Math.round(seconds * FRAMES_PER_SECOND);
+  };
+  
+  // Convert pixel position to time (0-1892px to 0-10 minutes) - legacy function
   const pixelToTime = (pixels) => {
-    const totalPixels = 1888; // Total available width
-    const totalMinutes = 10; // Total timeline duration
-    const minutes = (pixels / totalPixels) * totalMinutes;
-    return minutes;
+    const frames = pixelsToFrames(pixels);
+    return framesToTime(frames);
   };
 
-  // Convert time to pixel position (0-10 minutes to 0-1888px)
+  // Convert time to pixel position (0-10 minutes to 0-1892px) - legacy function
   const timeToPixel = (minutes) => {
-    const totalPixels = 1888; // Total available width
-    const totalMinutes = 10; // Total timeline duration
-    const pixels = (minutes / totalMinutes) * totalPixels;
-    return pixels;
+    const seconds = minutes * 60;
+    const frames = timeToFrames(seconds);
+    return framesToPixels(frames);
   };
 
-  // Format time with frames (60fps)
+  // Universal magnetic points management
+  const addMagneticPoint = (frame, track, type = 'clip') => {
+    const key = `${frame}_${track}`;
+    setMagneticPoints(prev => {
+      const newMap = new Map(prev);
+      newMap.set(key, { frame, track, type });
+      return newMap;
+    });
+  };
+
+  const removeMagneticPoint = (frame, track) => {
+    const key = `${frame}_${track}`;
+    setMagneticPoints(prev => {
+      const newMap = new Map(prev);
+      newMap.delete(key);
+      return newMap;
+    });
+  };
+
+  const updateMagneticPointsFromClips = (clips) => {
+    setMagneticPoints(prev => {
+      const newMap = new Map();
+      
+      // Convert pixel offset to frames
+      const magneticOffsetFrames = pixelsToFrames(MAGNETIC_OFFSET_PIXELS);
+      
+      // Add playhead position with drag offset
+      if (playheadPosition >= 0) {
+        const playheadDragOffsetFrames = pixelsToFrames(PLAYHEAD_DRAG_OFFSET);
+        const adjustedPlayhead = playheadPosition + playheadDragOffsetFrames;
+        const playheadKey = `${adjustedPlayhead}_playhead`;
+        newMap.set(playheadKey, { frame: adjustedPlayhead, track: 'playhead', type: 'playhead' });
+      }
+      
+      // Add timeline boundaries (0 and max frames) with magnetic offset
+      const timelineStartKey = `${magneticOffsetFrames}_timeline_start`;
+      newMap.set(timelineStartKey, { frame: magneticOffsetFrames, track: 'timeline', type: 'timeline_start' });
+      
+      const timelineEndKey = `${TIMELINE_TOTAL_FRAMES + magneticOffsetFrames}_timeline_end`;
+      newMap.set(timelineEndKey, { frame: TIMELINE_TOTAL_FRAMES + magneticOffsetFrames, track: 'timeline', type: 'timeline_end' });
+      
+      // Add all clip start and end points (use stored frame values) with offset
+      clips.forEach(clip => {
+        if (clip.startFrames !== undefined) {
+          const adjustedStart = clip.startFrames + magneticOffsetFrames;
+          const startKey = `${adjustedStart}_${clip.track}`;
+          newMap.set(startKey, { frame: adjustedStart, track: clip.track, type: 'clip_start' });
+        }
+        
+        if (clip.endFrames !== undefined) {
+          const adjustedEnd = clip.endFrames + magneticOffsetFrames;
+          const endKey = `${adjustedEnd}_${clip.track}`;
+          newMap.set(endKey, { frame: adjustedEnd, track: clip.track, type: 'clip_end' });
+        }
+      });
+      
+      // Debug: Log magnetic points when debug is enabled
+      if (showMagneticDebug) {
+        console.log('=== MAGNETIC POINTS UPDATE ===');
+        console.log('Playhead position:', playheadPosition, 'frames');
+        console.log('Timeline boundaries: 0 to', TIMELINE_TOTAL_FRAMES, 'frames');
+        console.log('Clips:', clips.length);
+        clips.forEach((clip, index) => {
+          console.log(`Clip ${index}:`, {
+            startFrames: clip.startFrames,
+            endFrames: clip.endFrames,
+            startPixel: clip.startPixel,
+            endPixel: clip.endPixel,
+            track: clip.track
+          });
+        });
+        console.log('Total magnetic points:', newMap.size);
+        console.log('=== END MAGNETIC POINTS UPDATE ===');
+      }
+      
+      return newMap;
+    });
+  };
+
+  const updatePlayheadMagneticPoint = (newPlayheadPosition) => {
+    setMagneticPoints(prev => {
+      const newMap = new Map(prev);
+      
+      // Remove ALL old playhead positions (clean up any duplicates)
+      for (const [key, value] of newMap.entries()) {
+        if (value.type === 'playhead') {
+          newMap.delete(key);
+        }
+      }
+      
+      // Add new playhead position with drag offset
+      if (newPlayheadPosition >= 0) {
+        const playheadDragOffsetFrames = pixelsToFrames(PLAYHEAD_DRAG_OFFSET);
+        const adjustedPlayhead = newPlayheadPosition + playheadDragOffsetFrames;
+        const newPlayheadKey = `${adjustedPlayhead}_playhead`;
+        newMap.set(newPlayheadKey, { frame: adjustedPlayhead, track: 'playhead', type: 'playhead' });
+      }
+      
+      return newMap;
+    });
+  };
+
+  // Enhanced magnetism function using universal magnetic points
+  const applyMagnetism = (positionFrames, snapThresholdPixels = 10, currentTrack = null, clipWidthPixels = 0) => {
+    const snapPoints = [];
+    
+    // Convert snap threshold from pixels to frames
+    const frameSnapThreshold = pixelsToFrames(snapThresholdPixels);
+    
+    // Use universal magnetic points
+    magneticPoints.forEach((point, key) => {
+      const { frame, track, type } = point;
+      
+      // Add all points within threshold
+      const distance = Math.abs(positionFrames - frame);
+      if (distance < frameSnapThreshold) {
+        snapPoints.push(frame);
+      }
+      
+      // Cross-track magnetism: snap to points on other tracks
+      if (currentTrack && track !== currentTrack && track !== 'playhead') {
+        const crossTrackDistance = Math.abs(positionFrames - frame);
+        if (crossTrackDistance < frameSnapThreshold) {
+          snapPoints.push(frame);
+        }
+      }
+      
+      // End-to-start snapping
+      if (clipWidthPixels > 0) {
+        const clipWidthFrames = pixelsToFrames(clipWidthPixels);
+        const ourClipEnd = positionFrames + clipWidthFrames;
+        
+        // If our clip's end would be near this point
+        const endDistance = Math.abs(ourClipEnd - frame);
+        if (endDistance < frameSnapThreshold) {
+          // Snap so our clip ends exactly at this point
+          snapPoints.push(frame - clipWidthFrames);
+        }
+      }
+    });
+    
+    // Add playhead position as special case (use captured position from drag start)
+    const playheadSnapPoint = dragStartPlayheadPosition !== null ? dragStartPlayheadPosition : playheadPosition;
+    if (playheadSnapPoint >= 0 && playheadSnapPoint <= TIMELINE_TOTAL_FRAMES) {
+      const playheadDistance = Math.abs(positionFrames - playheadSnapPoint);
+      if (playheadDistance < frameSnapThreshold) {
+        snapPoints.push(playheadSnapPoint);
+      }
+    }
+    
+    // Find the closest snap point within threshold
+    let closestSnap = null;
+    let minDistance = Infinity;
+    
+    snapPoints.forEach(snapPoint => {
+      const distance = Math.abs(positionFrames - snapPoint);
+      if (distance < frameSnapThreshold && distance < minDistance) {
+        minDistance = distance;
+        closestSnap = snapPoint;
+      }
+    });
+    
+    return closestSnap !== null ? closestSnap : positionFrames;
+  };
+
+  // Format time with frames (60fps) - works with pixel positions
   const formatTime = (pixels) => {
     const minutes = pixelToTime(pixels);
     const totalSeconds = Math.floor(minutes * 60);
@@ -216,6 +474,31 @@ export default function Timeline() {
       return `${mins}:${secs.toString().padStart(2, '0')}.${frames.toString().padStart(2, '0')}`;
     }
   };
+
+  // Format time directly from frames (60fps)
+  const formatTimeFromFrames = (frames) => {
+    const totalSeconds = Math.floor(frames / FRAMES_PER_SECOND);
+    const remainingFrames = frames % FRAMES_PER_SECOND;
+    const hours = Math.floor(totalSeconds / 3600);
+    const mins = Math.floor((totalSeconds % 3600) / 60);
+    const secs = totalSeconds % 60;
+    
+    if (hours > 0) {
+      return `${hours}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${remainingFrames.toString().padStart(2, '0')}`;
+    } else {
+      return `${mins}:${secs.toString().padStart(2, '0')}.${remainingFrames.toString().padStart(2, '0')}`;
+    }
+  };
+
+  // Initialize magnetic points when clips change
+  useEffect(() => {
+    updateMagneticPointsFromClips(timelineClips);
+  }, [timelineClips]);
+
+  // Update playhead magnetic point when playhead moves
+  useEffect(() => {
+    updatePlayheadMagneticPoint(playheadPosition);
+  }, [playheadPosition]);
 
   // Handle document-level mouse events for dragging
   useEffect(() => {
@@ -234,37 +517,100 @@ export default function Timeline() {
   useEffect(() => {
     const timelineElement = document.querySelector('.timeline-content');
     if (timelineElement) {
+      // Listen for playhead position requests from ClipList
+      const handlePlayheadRequest = () => {
+        setDragStartPlayheadPosition(playheadPosition);
+        // Update playhead position in magnetic points for current drag
+        updatePlayheadMagneticPoint(playheadPosition);
+      };
+      
+      timelineElement.addEventListener('requestPlayheadPosition', handlePlayheadRequest);
       const handleTimelineDropEvent = (e) => {
         const { clip, clientX, clientY, track } = e.detail;
         const timelineRect = timelineElement.getBoundingClientRect();
         const dropX = clientX - timelineRect.left;
+        
         
         // Calculate position relative to track content area
         const trackContentStart = 76; // Track title width
         const relativeX = dropX - trackContentStart;
         
         if (relativeX >= 0) {
-          // Convert pixel position to time
-          const startTime = pixelToTime(relativeX);
-          
           // Use track from drop event, fallback to drag preview, then default to track 1
           const targetTrack = track || (dragPreview ? dragPreview.track : 1);
           
-          
-          // Create new clip with duration
+          // Create new clip with duration (convert to frames)
           const baseId = `clip_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-          const clipDuration = clip.duration || 5; // Use actual duration from clip
+          
+          // Use the duration that was already loaded in ClipList
+          let clipDuration = 5; // Default fallback
+          console.log('=== DURATION FROM CLIPLIST IN DROP ===');
+          console.log('Clip duration from ClipList:', clip.duration, 'Type:', typeof clip.duration);
+          
+          // Handle both numeric duration (from ClipList) and MM:SS format
+          if (typeof clip.duration === 'number' && clip.duration > 0) {
+            // Duration is already in seconds (from ClipList processing)
+            clipDuration = clip.duration;
+            console.log('Using numeric duration from ClipList:', clipDuration, 'seconds');
+          } else if (clip.duration && clip.duration !== "0:00") {
+            // Duration is in MM:SS format
+            const durationStr = clip.duration.toString();
+            console.log('Duration string from ClipList:', durationStr);
+            const parts = durationStr.split(':');
+            console.log('Split parts:', parts);
+            if (parts.length === 2) {
+              const minutes = parseInt(parts[0]);
+              const seconds = parseInt(parts[1]);
+              clipDuration = minutes * 60 + seconds;
+              console.log('Parsed MM:SS duration from ClipList:', clipDuration, 'seconds');
+            } else {
+              console.log('Invalid duration format from ClipList, using fallback');
+            }
+          } else {
+            console.log('Duration from ClipList is "0:00" or falsy, using fallback');
+          }
+          console.log('=== END DURATION FROM CLIPLIST ===');
+          
+          const durationInFrames = timeToFrames(clipDuration); // Convert seconds to frames
+          
+          // Calculate start and end positions in frames
+          const startFrames = pixelsToFrames(relativeX);
+          const endFrames = startFrames + durationInFrames;
+          
+          // Apply magnetism to snap to nearby elements (all in frames)
+          const snappedStartFrames = applyMagnetism(startFrames, 10, targetTrack, framesToPixels(durationInFrames));
+          const snappedEndFrames = snappedStartFrames + durationInFrames;
+          
+          // Convert to pixels for display
+          const startPixel = framesToPixels(snappedStartFrames);
+          const endPixel = framesToPixels(snappedEndFrames);
+          const widthPixel = endPixel - startPixel;
+          
+          // Convert pixel position to time
+          const startTime = pixelToTime(startPixel);
+          
           const newClip = {
             id: baseId,
-            ...clip,
+            // Don't spread clip to avoid overriding calculated properties
+            character: clip.character,
+            filename: clip.filename,
             startTime: startTime,
             duration: clipDuration,
             track: targetTrack,
-            startPixel: relativeX,
-            widthPixel: timeToPixel(clipDuration) // Convert actual duration to pixels
+            startPixel: startPixel,
+            endPixel: endPixel,
+            widthPixel: widthPixel,
+            startFrames: snappedStartFrames,
+            endFrames: snappedEndFrames,
+            durationFrames: durationInFrames
           };
           
-          setTimelineClips(prev => [...prev, newClip]);
+          setTimelineClips(prev => {
+            const updatedClips = [...prev, newClip];
+            // Update magnetic points whenever clips change
+            updateMagneticPointsFromClips(updatedClips);
+            return updatedClips;
+          });
           
           // If this is a multi-track clip, create additional clips for other tracks
           if (dragPreview && dragPreview.multiTrack) {
@@ -278,8 +624,9 @@ export default function Timeline() {
           }
         }
         
-        // Clear drag preview
+        // Clear drag preview and reset playhead capture
         setDragPreview(null);
+        setDragStartPlayheadPosition(null);
       };
       
       const handleTimelineDragOver = (e) => {
@@ -298,7 +645,18 @@ export default function Timeline() {
           if (relativeX >= 0 && mouseY >= 60) { // 60px to account for top bar and time ruler
             // Get clip data from the drag preview element
             const clipData = JSON.parse(draggedClip.dataset.clip || '{}');
-            const duration = clipData.duration || 5;
+            
+            // Handle both numeric duration (from ClipList) and MM:SS format
+            let duration = 5; // Default fallback
+            if (typeof clipData.duration === 'number' && clipData.duration > 0) {
+              duration = clipData.duration;
+            } else if (clipData.duration && clipData.duration !== "0:00") {
+              const durationStr = clipData.duration.toString();
+              const parts = durationStr.split(':');
+              if (parts.length === 2) {
+                duration = parseInt(parts[0]) * 60 + parseInt(parts[1]);
+              }
+            }
             
             // Calculate which track the mouse is over
             // Tracks start at 60px and are 50px high each
@@ -313,9 +671,35 @@ export default function Timeline() {
             // Track 1 is at the bottom (highest Y values), Track 3 is at the top (lowest Y values)
             const targetTrack = Math.max(1, Math.min(3 - trackIndex, 3));
             
+            // Apply magnetism to snap to nearby elements (all in frames)
+            // Handle both numeric duration (from ClipList) and MM:SS format
+            let durationInSeconds = 5; // Default fallback
+            if (typeof duration === 'number' && duration > 0) {
+              durationInSeconds = duration;
+            } else if (duration && duration !== "0:00") {
+              const durationStr = duration.toString();
+              const parts = durationStr.split(':');
+              if (parts.length === 2) {
+                const minutes = parseInt(parts[0]);
+                const seconds = parseInt(parts[1]);
+                durationInSeconds = minutes * 60 + seconds;
+              }
+            }
+            
+            const durationInFrames = timeToFrames(durationInSeconds); // Convert seconds to frames
+            const positionFrames = pixelsToFrames(relativeX);
+            const snappedStartFrames = applyMagnetism(positionFrames, 10, targetTrack, framesToPixels(durationInFrames));
+            const snappedEndFrames = snappedStartFrames + durationInFrames;
+            
+            // Convert to pixels for display
+            const startPixel = framesToPixels(snappedStartFrames);
+            const endPixel = framesToPixels(snappedEndFrames);
+            const widthPixel = endPixel - startPixel;
+            
             setDragPreview({
-              startPixel: relativeX,
-              widthPixel: timeToPixel(duration),
+              startPixel: startPixel,
+              endPixel: endPixel,
+              widthPixel: widthPixel,
               character: clipData.character || 'Clip',
               duration: duration,
               track: targetTrack
@@ -335,7 +719,17 @@ export default function Timeline() {
             const relativeX = mouseX - trackContentStart;
             
             if (relativeX >= 0 && mouseY >= 60) {
-              const duration = customDragEvent.clip.duration || 5;
+              // Handle both numeric duration (from ClipList) and MM:SS format
+              let duration = 5; // Default fallback
+              if (typeof customDragEvent.clip.duration === 'number' && customDragEvent.clip.duration > 0) {
+                duration = customDragEvent.clip.duration;
+              } else if (customDragEvent.clip.duration && customDragEvent.clip.duration !== "0:00") {
+                const durationStr = customDragEvent.clip.duration.toString();
+                const parts = durationStr.split(':');
+                if (parts.length === 2) {
+                  duration = parseInt(parts[0]) * 60 + parseInt(parts[1]);
+                }
+              }
               
               // Calculate which track the mouse is over
               const trackHeight = 50;
@@ -343,9 +737,35 @@ export default function Timeline() {
               const trackIndex = Math.floor((mouseY - trackStartY) / trackHeight);
               const targetTrack = Math.max(1, Math.min(trackIndex + 1, 3));
               
+              // Apply magnetism to snap to nearby elements (all in frames)
+              // Handle both numeric duration (from ClipList) and MM:SS format
+              let durationInSeconds = 5; // Default fallback
+              if (typeof duration === 'number' && duration > 0) {
+                durationInSeconds = duration;
+              } else if (duration && duration !== "0:00") {
+                const durationStr = duration.toString();
+                const parts = durationStr.split(':');
+                if (parts.length === 2) {
+                  const minutes = parseInt(parts[0]);
+                  const seconds = parseInt(parts[1]);
+                  durationInSeconds = minutes * 60 + seconds;
+                }
+              }
+              
+              const durationInFrames = timeToFrames(durationInSeconds); // Convert seconds to frames
+              const positionFrames = pixelsToFrames(relativeX);
+              const snappedStartFrames = applyMagnetism(positionFrames, 10, targetTrack, framesToPixels(durationInFrames));
+              const snappedEndFrames = snappedStartFrames + durationInFrames;
+              
+              // Convert to pixels for display
+              const startPixel = framesToPixels(snappedStartFrames);
+              const endPixel = framesToPixels(snappedEndFrames);
+              const widthPixel = endPixel - startPixel;
+              
               setDragPreview({
-                startPixel: relativeX,
-                widthPixel: timeToPixel(duration),
+                startPixel: startPixel,
+                endPixel: endPixel,
+                widthPixel: widthPixel,
                 character: customDragEvent.clip.character || 'Clip',
                 duration: duration,
                 track: targetTrack
@@ -377,7 +797,17 @@ export default function Timeline() {
         
         
         if (relativeX >= 0 && mouseY >= 60) {
-          const duration = clip.duration || 5;
+          // Handle both numeric duration (from ClipList) and MM:SS format
+          let duration = 5; // Default fallback
+          if (typeof clip.duration === 'number' && clip.duration > 0) {
+            duration = clip.duration;
+          } else if (clip.duration && clip.duration !== "0:00") {
+            const durationStr = clip.duration.toString();
+            const parts = durationStr.split(':');
+            if (parts.length === 2) {
+              duration = parseInt(parts[0]) * 60 + parseInt(parts[1]);
+            }
+          }
           
           
           // Simple track calculation - just find the closest track to mouse
@@ -400,9 +830,35 @@ export default function Timeline() {
           // Check if Ctrl key is pressed for multi-track placement
           const isMultiTrack = ctrlKey || metaKey;
           
+          // Apply magnetism to snap to nearby elements (all in frames)
+          // Handle both numeric duration (from ClipList) and MM:SS format
+          let durationInSeconds = 5; // Default fallback
+          if (typeof duration === 'number' && duration > 0) {
+            durationInSeconds = duration;
+          } else if (duration && duration !== "0:00") {
+            const durationStr = duration.toString();
+            const parts = durationStr.split(':');
+            if (parts.length === 2) {
+              const minutes = parseInt(parts[0]);
+              const seconds = parseInt(parts[1]);
+              durationInSeconds = minutes * 60 + seconds;
+            }
+          }
+          
+          const durationInFrames = timeToFrames(durationInSeconds); // Convert seconds to frames
+          const positionFrames = pixelsToFrames(relativeX);
+          const snappedStartFrames = applyMagnetism(positionFrames, 10, targetTrack, framesToPixels(durationInFrames));
+          const snappedEndFrames = snappedStartFrames + durationInFrames;
+          
+          // Convert to pixels for display
+          const startPixel = framesToPixels(snappedStartFrames);
+          const endPixel = framesToPixels(snappedEndFrames);
+          const widthPixel = endPixel - startPixel;
+          
           setDragPreview({
-            startPixel: relativeX,
-            widthPixel: timeToPixel(duration),
+            startPixel: startPixel,
+            endPixel: endPixel,
+            widthPixel: widthPixel,
             character: clip.character || 'Clip',
             duration: duration,
             track: targetTrack,
@@ -428,6 +884,7 @@ export default function Timeline() {
       timelineElement.addEventListener('timelineDragOver', handleTimelineDragOverEvent);
       timelineElement.addEventListener('timelineDragLeave', handleTimelineDragLeaveEvent);
       timelineElement.addEventListener('timelineDragClear', handleTimelineDragClear);
+      timelineElement.addEventListener('requestPlayheadPosition', handlePlayheadRequest);
       
       return () => {
         timelineElement.removeEventListener('timelineDrop', handleTimelineDropEvent);
@@ -436,6 +893,7 @@ export default function Timeline() {
         timelineElement.removeEventListener('timelineDragOver', handleTimelineDragOverEvent);
         timelineElement.removeEventListener('timelineDragLeave', handleTimelineDragLeaveEvent);
         timelineElement.removeEventListener('timelineDragClear', handleTimelineDragClear);
+        timelineElement.removeEventListener('requestPlayheadPosition', handlePlayheadRequest);
       };
     }
   }, []);
@@ -497,7 +955,13 @@ export default function Timeline() {
         {tools.map(tool => (
           <button
             key={tool.id}
-            onClick={() => tool.active && setActiveTool(tool.id)}
+            onClick={() => {
+              if (tool.id === 'magnetic') {
+                setShowMagneticDebug(!showMagneticDebug);
+              } else if (tool.active) {
+                setActiveTool(tool.id);
+              }
+            }}
             style={{
               display: "flex",
               alignItems: "center",
@@ -560,7 +1024,7 @@ export default function Timeline() {
              top: "50%",
              transform: "translateY(-50%)"
            }}>
-             {formatTime(playheadPosition)}
+             {formatTimeFromFrames(playheadPosition)}
            </div>
            
            {/* Start and End Time Displays */}
@@ -598,9 +1062,9 @@ export default function Timeline() {
           {Array.from({ length: 11 }, (_, i) => {
             const time = i; // 0, 1, 2, ..., 10 minutes
             // Calculate position in pixels within available area (excluding buffer zone)
-            const bufferZone = 40; // Buffer zone width in pixels
-            const availableWidth = 1888; // Available width in pixels (1892 - 4px adjustment)
-            const position = (time / 10) * availableWidth; // Position in pixels
+            // Use the actual constraint value - 1890 pixels from the beginning
+            const actualMaxPosition = 1890; // This is the actual constraint value
+            const position = (time / 10) * actualMaxPosition; // Position in pixels
             return (
               <div
                 key={i}
@@ -636,7 +1100,7 @@ export default function Timeline() {
            className="playhead"
            style={{
              position: "absolute",
-             left: `${76 + playheadPosition}px`, // Simple pixel positioning
+             left: `${76 + framesToPixels(playheadPosition)}px`, // Convert frame position to pixels
              top: "60px", // Start below top bar (30px) and time ruler (30px)
              bottom: 0,
              width: "2px",
@@ -746,7 +1210,7 @@ export default function Timeline() {
                        cursor: "pointer",
                        userSelect: "none"
                      }}
-                     title={`${clip.character} - ${clip.filename} (${clip.duration}s)`}
+                     title={`${clip.character} - ${clip.filename} (${clip.duration}s, ${clip.widthPixel}px wide)`}
                    >
                      {clip.character}
                    </div>
@@ -776,6 +1240,33 @@ export default function Timeline() {
                    }}
                  >
                    {dragPreview.character}
+                 </div>
+               )}
+               
+               {/* Debug Visual for Drag Preview */}
+               {dragPreview && dragPreview.track === trackNum && (
+                 <div
+                   style={{
+                     position: "absolute",
+                     left: `${dragPreview.startPixel}px`,
+                     top: "-50px",
+                     background: "rgba(0, 0, 0, 0.9)",
+                     color: "white",
+                     padding: "6px 8px",
+                     borderRadius: "4px",
+                     fontSize: "10px",
+                     fontFamily: "monospace",
+                     whiteSpace: "nowrap",
+                     zIndex: 20,
+                     pointerEvents: "none",
+                     border: "1px solid #333"
+                   }}
+                 >
+                   <div style={{ fontWeight: "bold", marginBottom: "2px" }}>DRAG DEBUG</div>
+                   <div>Start: {dragPreview.startPixel.toFixed(1)}px</div>
+                   <div>End: {(dragPreview.startPixel + dragPreview.widthPixel).toFixed(1)}px</div>
+                   <div>Width: {dragPreview.widthPixel.toFixed(1)}px</div>
+                   <div>Duration: {dragPreview.duration}s</div>
                  </div>
                )}
              </div>
@@ -846,7 +1337,7 @@ export default function Timeline() {
          {/* Timeline Content Border Overlay */}
          <div style={{
            position: "absolute",
-           left: "76px",
+           left: "75px",
            top: 0,
            bottom: 0,
            width: "2px",
@@ -858,7 +1349,7 @@ export default function Timeline() {
          {/* Right Edge Buffer Zone */}
          <div style={{
            position: "absolute",
-           right: "0px",
+           right: "-3px",
            top: "60px", // Start below the top bar (30px) and time ruler (30px)
            bottom: 0,
            width: "40px", // Buffer zone width
@@ -866,7 +1357,131 @@ export default function Timeline() {
            zIndex: 5,
            pointerEvents: "none"
          }} />
+         
+         
        </div>
+       
+       {/* Magnetic Debug Display */}
+       {showMagneticDebug && (
+         <div style={{
+           position: "fixed",
+           top: "10px",
+           right: "10px",
+           background: "rgba(0, 0, 0, 0.9)",
+           color: "white",
+           padding: "10px",
+           borderRadius: "5px",
+           fontSize: "12px",
+           fontFamily: "monospace",
+           zIndex: 9999,
+           maxWidth: "300px",
+           border: "2px solid #ff0000"
+         }}>
+           <div style={{ fontWeight: "bold", marginBottom: "5px", color: "#ff0000" }}>
+             MAGNETIC POINTS ({magneticPoints.size})
+           </div>
+           <div style={{ marginBottom: "10px", padding: "5px", background: "rgba(255,255,255,0.1)", borderRadius: "3px" }}>
+             <div style={{ fontSize: "10px", marginBottom: "3px" }}>
+               <strong>Magnetic Offset:</strong> {MAGNETIC_OFFSET_PIXELS}px (hardcoded in code)
+             </div>
+           </div>
+           {Array.from(magneticPoints.values()).map((point, index) => (
+             <div key={index} style={{ fontSize: "10px", marginBottom: "2px" }}>
+               {point.type}: {point.frame}f @ track {point.track}
+             </div>
+           ))}
+           <button 
+             onClick={() => setShowMagneticDebug(false)}
+             style={{ 
+               marginTop: "5px", 
+               padding: "2px 6px", 
+               fontSize: "10px",
+               background: "#ff0000",
+               color: "white",
+               border: "none",
+               borderRadius: "3px",
+               cursor: "pointer"
+             }}
+           >
+             Hide
+           </button>
+         </div>
+       )}
+       
+       {/* Timeline Boundaries - Orange lines for start/end */}
+       {showMagneticDebug && (
+         <>
+           {/* Timeline Start (0 frames + magnetic offset) - Shows where magnetism will occur */}
+           <div
+             style={{
+               position: "absolute",
+               left: `${getActualTimelineStart() + framesToPixels(pixelsToFrames(MAGNETIC_OFFSET_PIXELS))}px`,
+               top: "60px",
+               bottom: "0px",
+               width: "1px",
+               background: "#ff8800",
+               zIndex: 25,
+               pointerEvents: "none",
+               opacity: 0.9
+             }}
+             title={`Timeline Start Magnetic Point: ${getActualTimelineStart() + MAGNETIC_OFFSET_PIXELS}px (offset: ${MAGNETIC_OFFSET_PIXELS}px)`}
+           />
+           {/* Timeline End (36000 frames + magnetic offset) - Shows where magnetism will occur */}
+           <div
+             style={{
+               position: "absolute",
+               left: `${getActualTimelineStart() + framesToPixels(TIMELINE_TOTAL_FRAMES) + MAGNETIC_OFFSET_PIXELS}px`,
+               top: "60px",
+               bottom: "0px",
+               width: "1px",
+               background: "#ff8800",
+               zIndex: 25,
+               pointerEvents: "none",
+               opacity: 0.9
+             }}
+             title={`Timeline End Magnetic Point: ${getActualTimelineStart() + framesToPixels(TIMELINE_TOTAL_FRAMES) + MAGNETIC_OFFSET_PIXELS}px (offset: ${MAGNETIC_OFFSET_PIXELS}px)`}
+           />
+         </>
+       )}
+       
+       {/* Frame Grid Test - Show every 60 frames (1 second) */}
+       {showMagneticDebug && Array.from({length: 11}, (_, i) => i * 60).map((frame, index) => (
+         <div
+           key={`grid-${frame}`}
+           style={{
+             position: "absolute",
+             left: `${76 + framesToPixels(frame)}px`,
+             top: "60px",
+             bottom: "0px",
+             width: "1px",
+             background: "#00ff00",
+             zIndex: 15,
+             pointerEvents: "none",
+             opacity: 0.5
+           }}
+           title={`Grid: ${frame}f (${frame/60}s)`}
+         />
+       ))}
+       
+       {/* Magnetic Point Visual Indicators */}
+       {showMagneticDebug && Array.from(magneticPoints.values()).map((point, index) => (
+         <div
+           key={index}
+           style={{
+             position: "absolute",
+             left: `${76 + framesToPixels(point.frame)}px`,
+             top: "60px",
+             bottom: "0px",
+             width: "2px",
+             background: "#ff0000",
+             zIndex: 20,
+             pointerEvents: "none",
+             opacity: 0.8
+           }}
+           title={`${point.type}: ${point.frame}f @ track ${point.track} (magnetic point)`}
+         />
+       ))}
+       
      </div>
    );
  }

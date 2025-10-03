@@ -1,5 +1,91 @@
 import React, { useEffect, useState, useRef, useCallback } from "react";
 
+// Lazy loading duration component
+const LazyDuration = ({ clip }) => {
+  const [isVisible, setIsVisible] = useState(false);
+  const [duration, setDuration] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [hasError, setHasError] = useState(false);
+  const durationRef = useRef(null);
+
+  const observerRef = useRef(null);
+
+  useEffect(() => {
+    if (durationRef.current) {
+      observerRef.current = new IntersectionObserver(
+        ([entry]) => {
+          if (entry.isIntersecting) {
+            setIsVisible(true);
+            observerRef.current.disconnect();
+          }
+        },
+        { 
+          rootMargin: '10px',
+          threshold: 0.1 
+        }
+      );
+      observerRef.current.observe(durationRef.current);
+    }
+
+    return () => {
+      if (observerRef.current) {
+        observerRef.current.disconnect();
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (isVisible && !duration && !isLoading && !hasError) {
+      setIsLoading(true);
+      
+      // Fetch actual duration from backend
+      fetch(`http://localhost:5000/api/duration/${clip.character}/${clip.filename}`)
+        .then(response => response.json())
+        .then(data => {
+          setDuration(data.duration);
+          setIsLoading(false);
+        })
+        .catch(error => {
+          console.error('Error fetching duration:', error);
+          setHasError(true);
+          setIsLoading(false);
+        });
+    }
+  }, [isVisible, duration, isLoading, hasError, clip.character, clip.filename]);
+
+  return (
+    <div 
+      ref={durationRef}
+      style={{ 
+        minHeight: "20px",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "flex-start"
+      }}
+    >
+      {isVisible && (
+        <>
+          {isLoading && (
+            <div style={{ fontSize: "10px", color: "#999" }}>
+              Loading...
+            </div>
+          )}
+          {duration && !isLoading && (
+            <div style={{ fontSize: "11px", color: "#888" }}>
+              {duration}
+            </div>
+          )}
+          {hasError && (
+            <div style={{ fontSize: "10px", color: "#f00" }}>
+              Error
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+};
+
 // Lazy loading thumbnail component
 const LazyThumbnail = ({ clip, onError }) => {
   const [isVisible, setIsVisible] = useState(false);
@@ -19,7 +105,7 @@ const LazyThumbnail = ({ clip, onError }) => {
           }
         },
         { 
-          rootMargin: '50px',
+          rootMargin: '10px',
           threshold: 0.1 
         }
       );
@@ -172,10 +258,6 @@ export default function ClipList({ onClipSelect }) {
     async function fetchClips() {
       const resp = await fetch("http://localhost:5000/api/files");
       const data = await resp.json();
-      console.log('Received clips with durations:', data.slice(0, 3).map(clip => ({ 
-        filename: clip.filename, 
-        duration: clip.duration 
-      })));
       setClips(data);
       setLoading(false);
     }
@@ -337,50 +419,94 @@ export default function ClipList({ onClipSelect }) {
   };
 
   const handleMouseDown = (e, clip) => {
-    e.preventDefault();
-    
     // Check if currentTarget exists
     if (!e.currentTarget) {
       console.error('currentTarget is null in handleMouseDown');
       return;
     }
     
-    // Clear any existing drag preview on timeline
-    const timelineElement = document.querySelector('.timeline-content');
-    if (timelineElement) {
-      const clearEvent = new CustomEvent('timelineDragClear');
-      timelineElement.dispatchEvent(clearEvent);
-    }
+    // Store initial mouse position for drag detection
+    const startX = e.clientX;
+    const startY = e.clientY;
     
-    // Use duration from clip data (now provided by backend)
-    const durationInSeconds = parseDurationToSeconds(clip.duration);
-    
-    // Create clip with duration
-    const clipWithDuration = {
-      ...clip,
-      duration: durationInSeconds,
-      durationString: clip.duration
+    const handleMouseMove = async (moveEvent) => {
+      const deltaX = Math.abs(moveEvent.clientX - startX);
+      const deltaY = Math.abs(moveEvent.clientY - startY);
+      
+      // If mouse moved more than 5 pixels, start drag operation
+      if (deltaX > 5 || deltaY > 5) {
+        e.preventDefault(); // Only prevent default when actually dragging
+        
+        // Clear any existing drag preview on timeline and capture playhead position
+        const timelineElement = document.querySelector('.timeline-content');
+        if (timelineElement) {
+          const clearEvent = new CustomEvent('timelineDragClear');
+          timelineElement.dispatchEvent(clearEvent);
+          
+          // Request current playhead position for magnetism
+          const playheadRequestEvent = new CustomEvent('requestPlayheadPosition');
+          timelineElement.dispatchEvent(playheadRequestEvent);
+        }
+        
+        // Fetch actual duration only when drag initiates (clip should be lazy loaded)
+        let durationInSeconds = parseDurationToSeconds(clip.duration);
+        
+        // If duration is still placeholder, fetch the real duration
+        if (clip.duration === "0:00" || !clip.duration) {
+          try {
+            const response = await fetch(`http://localhost:5000/api/duration/${clip.character}/${clip.filename}`);
+            const data = await response.json();
+            
+            if (data.duration && data.duration !== "0:00") {
+              durationInSeconds = parseDurationToSeconds(data.duration);
+            }
+          } catch (error) {
+            console.error('Error fetching duration:', error);
+          }
+        }
+        
+        // Create clip with actual duration
+        const clipWithDuration = {
+          ...clip,
+          duration: durationInSeconds,
+          durationString: clip.duration
+        };
+        
+        setDraggedClip(clipWithDuration);
+        setIsDragging(true);
+        
+        try {
+          const rect = e.currentTarget.getBoundingClientRect();
+          setDragOffset({
+            x: moveEvent.clientX - rect.left,
+            y: moveEvent.clientY - rect.top
+          });
+        } catch (error) {
+          console.error('Error getting bounding rect:', error);
+          // Fallback to using clientX/Y directly
+          setDragOffset({
+            x: 0,
+            y: 0
+          });
+        }
+        
+        setDragPosition({ x: moveEvent.clientX, y: moveEvent.clientY });
+        
+        // Remove the temporary mouse move listener
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+      }
     };
     
-    setDraggedClip(clipWithDuration);
-    setIsDragging(true);
+    const handleMouseUp = () => {
+      // Remove listeners if mouse is released without dragging
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
     
-    try {
-      const rect = e.currentTarget.getBoundingClientRect();
-      setDragOffset({
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top
-      });
-    } catch (error) {
-      console.error('Error getting bounding rect:', error);
-      // Fallback to using clientX/Y directly
-      setDragOffset({
-        x: 0,
-        y: 0
-      });
-    }
-    
-    setDragPosition({ x: e.clientX, y: e.clientY });
+    // Add temporary listeners to detect if this becomes a drag
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
   };
 
 
@@ -878,7 +1004,9 @@ export default function ClipList({ onClipSelect }) {
                         <td style={{ border: "1px solid #eee", padding: "8px", width: "80px" }}>{clip.season}</td>
                         <td style={{ border: "1px solid #eee", padding: "8px", width: "80px" }}>{clip.episode}</td>
                         <td style={{ border: "1px solid #eee", padding: "8px", width: "80px" }}>{clip.order}</td>
-                        <td style={{ border: "1px solid #eee", padding: "8px", width: "80px" }}>{clip.duration}</td>
+                        <td style={{ border: "1px solid #eee", padding: "8px", width: "80px" }}>
+                          <LazyDuration clip={clip} />
+                        </td>
                         <td style={{ 
                           border: "1px solid #eee", 
                           padding: "8px", 
@@ -900,7 +1028,7 @@ export default function ClipList({ onClipSelect }) {
 
           {/* Grid View */}
           {viewMode === "grid" && (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "12px" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: "8px" }}>
               {sortedClips.map((clip) => (
         <div
           key={clip.id}
@@ -910,7 +1038,7 @@ export default function ClipList({ onClipSelect }) {
                   style={{
                     border: draggedClip?.id === clip.id ? "2px solid #007bff" : "1px solid #ddd",
                     borderRadius: "6px",
-                    padding: "12px",
+                    padding: "8px",
                     cursor: isDragging && draggedClip?.id === clip.id ? "grabbing" : "grab",
                     background: selectedClip?.id === clip.id ? "#e3f2fd" : "white",
                     transition: "all 0.2s",
@@ -924,16 +1052,32 @@ export default function ClipList({ onClipSelect }) {
                     clip={clip}
                   />
                   
-                  <div style={{ fontWeight: "600", marginBottom: "4px", fontSize: "13px" }}>
+                  <div style={{ 
+                    fontWeight: "600", 
+                    marginBottom: "4px", 
+                    fontSize: "13px",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    display: "-webkit-box",
+                    WebkitLineClamp: 2,
+                    WebkitBoxOrient: "vertical",
+                    lineHeight: "1.2"
+                  }}>
                     {clip.filename}
                   </div>
                   <div style={{ fontSize: "12px", color: "#666", marginBottom: "4px" }}>
                     {clip.character}  {clip.season}  {clip.episode}
                   </div>
                   <div style={{ fontSize: "11px", color: "#888", marginBottom: "4px" }}>
-                    Duration: {clip.duration}
+                    Duration: <LazyDuration clip={clip} />
                   </div>
-                  <div style={{ fontSize: "11px", color: "#888" }}>
+                  <div style={{ 
+                    fontSize: "11px", 
+                    color: "#888",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap"
+                  }}>
                     {clip.description}
                   </div>
                 </div>
@@ -949,6 +1093,7 @@ export default function ClipList({ onClipSelect }) {
 
         </div>
       </div>
+      
 
     </div>
   );
