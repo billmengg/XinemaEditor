@@ -317,7 +317,7 @@ function EditorLayout() {
             <h3 style={{ margin: '0 0 16px 0', fontSize: '16px', fontWeight: '600' }}>
               Timeline
             </h3>
-            <Timeline />
+            <Timeline onClipSelect={setSelectedClip} />
           </div>
         </div>
       </div>
