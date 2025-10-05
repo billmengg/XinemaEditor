@@ -16,6 +16,14 @@ function App() {
     };
 
     const preventContextMenu = (e) => {
+      // Allow right-click on specific elements that need context menu access
+      if (e.target.closest('.timeline-content') || 
+          e.target.closest('.clip-list') ||
+          e.target.closest('button') ||
+          e.target.closest('input') ||
+          e.target.closest('textarea')) {
+        return; // Allow context menu on these elements
+      }
       e.preventDefault();
       e.stopPropagation();
     };
@@ -32,8 +40,8 @@ function App() {
     document.addEventListener('keydown', preventAltKey, { passive: false });
     document.addEventListener('keyup', preventAltKey, { passive: false });
     
-    // Prevent context menu
-    document.addEventListener('contextmenu', preventContextMenu, { passive: false });
+    // Prevent context menu - TEMPORARILY DISABLED FOR DEBUGGING
+    // document.addEventListener('contextmenu', preventContextMenu, { passive: false });
     
     // Prevent text selection events
     const preventSelection = (e) => {
@@ -317,7 +325,7 @@ function EditorLayout() {
             <h3 style={{ margin: '0 0 16px 0', fontSize: '16px', fontWeight: '600' }}>
               Timeline
             </h3>
-            <Timeline onClipSelect={setSelectedClip} />
+            <Timeline onClipSelect={setSelectedClip} selectedClip={selectedClip} />
           </div>
         </div>
       </div>

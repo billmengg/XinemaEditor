@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from "react";
+import { logOnce } from '../utils/consoleDeduplication';
 
 // Lazy loading duration component
 const LazyDuration = ({ clip }) => {
@@ -475,14 +476,27 @@ export default function ClipList({ onClipSelect }) {
         setDraggedClip(clipWithDuration);
         setIsDragging(true);
         
+        // Request timeline to take snapshot of magnetic points
+        if (timelineElement) {
+          const snapshotEvent = new CustomEvent('requestMagneticSnapshot');
+          timelineElement.dispatchEvent(snapshotEvent);
+        }
+        
         try {
-          const rect = e.currentTarget.getBoundingClientRect();
-          setDragOffset({
-            x: moveEvent.clientX - rect.left,
-            y: moveEvent.clientY - rect.top
-          });
+          if (e.currentTarget) {
+            const rect = e.currentTarget.getBoundingClientRect();
+            setDragOffset({
+              x: moveEvent.clientX - rect.left,
+              y: moveEvent.clientY - rect.top
+            });
+          } else {
+            // Fallback to using clientX/Y directly
+            setDragOffset({
+              x: 0,
+              y: 0
+            });
+          }
         } catch (error) {
-          console.error('Error getting bounding rect:', error);
           // Fallback to using clientX/Y directly
           setDragOffset({
             x: 0,

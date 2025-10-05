@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { logOnce } from '../utils/consoleDeduplication';
 
-export default function Timeline() {
+export default function Timeline({ onClipSelect, selectedClip }) {
   const [activeTool, setActiveTool] = useState('cursor');
   const [videoTracks, setVideoTracks] = useState([1, 2, 3]);
   const [audioTracks, setAudioTracks] = useState([1]);
@@ -14,8 +15,9 @@ export default function Timeline() {
   const [showMagneticDebug, setShowMagneticDebug] = useState(false); // Show magnetic debug
   const [isDraggingClip, setIsDraggingClip] = useState(false); // Track if we're dragging a clip
   const [draggedClipActualPosition, setDraggedClipActualPosition] = useState(null); // Actual mouse position of dragged clip
-  const [snapshotMagneticPoints, setSnapshotMagneticPoints] = useState(new Map()); // Snapshot of magnetic points when dragging starts
-  const currentSnapshotRef = useRef(new Map()); // Current snapshot for immediate use
+  // No snapshot needed - use live magnetic points data
+  const magneticPointsRef = useRef(new Map()); // Ref to track current magnetic points for event handlers
+  const lastLogRef = useRef({}); // Track last logged messages to prevent duplicates
   
   // MAGNETIC POINT TYPES AND COLORS
   const MAGNETIC_TYPES = {
@@ -61,6 +63,18 @@ export default function Timeline() {
     return 76; // Fallback to hardcoded value
   };
 
+  // Function to get the actual timeline width (device-independent)
+  const getActualTimelineWidth = () => {
+    const timelineElement = document.querySelector('.timeline-content');
+    if (timelineElement) {
+      const timelineRect = timelineElement.getBoundingClientRect();
+      console.log(`TIMELINE WIDTH DEBUG: Actual width: ${timelineRect.width}px, Hardcoded: ${TIMELINE_WIDTH_PIXELS}px`);
+      return timelineRect.width;
+    }
+    console.log(`TIMELINE WIDTH DEBUG: Using fallback: ${TIMELINE_WIDTH_PIXELS}px`);
+    return TIMELINE_WIDTH_PIXELS; // Fallback to hardcoded value
+  };
+
   const tools = [
     { id: 'cursor', icon: '↖', label: 'Cursor', active: true },
     { id: 'cut', icon: '✂', label: 'Cut', active: false },
@@ -91,7 +105,7 @@ export default function Timeline() {
   };
 
   const handleContextMenu = (e, trackType, trackNumber) => {
-    e.preventDefault();
+    // Don't prevent default for right-click context menu
     if ((trackType === 'video' && videoTracks.length > 1) || 
         (trackType === 'audio' && audioTracks.length > 1)) {
       setContextMenu({
@@ -119,7 +133,10 @@ export default function Timeline() {
   };
 
   const handlePlayheadMouseDown = (e) => {
-    e.preventDefault();
+    // Only prevent default for left clicks, allow right clicks
+    if (e.button === 0) {
+      e.preventDefault();
+    }
     e.stopPropagation();
     setIsDraggingPlayhead(true);
   };
@@ -140,7 +157,15 @@ export default function Timeline() {
       return;
     }
     
-    e.preventDefault(); // Prevent default selection behavior
+    // Don't update playhead if clicking on timeline clips
+    if (e.target.closest('[data-clip-id]')) {
+      return;
+    }
+    
+    // Only prevent default for left clicks, allow right clicks for context menu
+    if (e.button === 0) { // Left mouse button
+      e.preventDefault(); // Prevent default selection behavior
+    }
     
     const timelineRect = e.currentTarget.getBoundingClientRect();
     const clickX = e.clientX - timelineRect.left;
@@ -166,14 +191,19 @@ export default function Timeline() {
   };
 
   const handleTimelineClick = (e) => {
-    // Just prevent default behavior, don't start dragging on click
-    e.preventDefault();
+    // Only prevent default for left clicks, allow right clicks for context menu
+    if (e.button === 0) { // Left mouse button
+      e.preventDefault(); // Prevent default behavior, don't start dragging on click
+    }
   };
 
   const handleMouseMove = (e) => {
     // ONLY update playhead if we're actually dragging the playhead AND not dragging clips
     if (isDraggingPlayhead && !isDraggingClip) {
-      e.preventDefault(); // Prevent default selection behavior during dragging
+      // Only prevent default for left clicks, allow right clicks for context menu
+      if (e.button === 0 || e.button === undefined) { // Left mouse button or undefined (mousemove)
+        e.preventDefault(); // Prevent default selection behavior during dragging
+      }
       
       // Use the same element as the click handler to avoid jumping
       const timelineContent = document.querySelector('.timeline-content');
@@ -211,19 +241,31 @@ export default function Timeline() {
   };
 
   const handleMouseUp = () => {
+    // Log playhead position when playhead dragging ends (not during clip dragging)
+    if (isDraggingPlayhead && !isDraggingClip) {
+      // No console logging for playhead drag end
+      // Update playhead magnetic point with logging when drag ends
+      updatePlayheadMagneticPoint(playheadPosition, true);
+    }
     setIsDraggingPlayhead(false);
     setIsDraggingClip(false);
   };
 
   // Handle drag over timeline
   const handleTimelineDragOver = (e) => {
-    e.preventDefault();
+    // Only prevent default for drag operations, allow right clicks
+    if (e.type === 'dragover') {
+      e.preventDefault();
+    }
     e.dataTransfer.dropEffect = 'copy';
   };
 
   // Handle drop on timeline
   const handleTimelineDrop = async (e) => {
-    e.preventDefault();
+    // Only prevent default for drop operations, allow right clicks
+    if (e.type === 'drop') {
+      e.preventDefault();
+    }
     
     try {
       const clipData = JSON.parse(e.dataTransfer.getData('application/json'));
@@ -256,8 +298,9 @@ export default function Timeline() {
         const endFrames = startFrames + durationInFrames;
         
         // Apply magnetism to snap to nearby elements (all in frames)
-        const snappedStartFrames = applyMagnetism(startFrames, 10, 1, framesToPixels(durationInFrames));
-        const snappedEndFrames = snappedStartFrames + durationInFrames;
+        const snappedPosition = applyDraggedClipMagnetism(startFrames, startFrames + durationInFrames);
+        const snappedStartFrames = snappedPosition.startFrames;
+        const snappedEndFrames = snappedPosition.endFrames;
         
         // Apply timeline boundary constraints
         const constrainedPosition = applyTimelineBoundaries(snappedStartFrames, snappedEndFrames);
@@ -291,12 +334,18 @@ export default function Timeline() {
             const updatedClips = [...prev, newClip];
             // Update magnetic points whenever clips change
             updateMagneticPointsFromClips(updatedClips);
+            // No snapshot needed - magnetism uses live data
             return updatedClips;
           });
         }
       }
     } catch (error) {
       console.error('Error handling clip drop:', error);
+    } finally {
+      // Always reset drag state after drop attempt
+      setIsDraggingClip(false);
+      setDragPreview(null);
+      setDraggedClipActualPosition(null);
     }
   };
 
@@ -313,12 +362,27 @@ export default function Timeline() {
   
   // DISPLAY CONVERSION: Frames to pixels (ONLY for visual display)
   const framesToPixels = (frames) => {
-    return (frames / TIMELINE_TOTAL_FRAMES) * TIMELINE_WIDTH_PIXELS;
+    // Use the EXACT same calculation as time markers: (time / 10) * actualMaxPosition
+    const timelineElement = document.querySelector('.timeline-content');
+    const trackContentStart = 76; // Track title width
+    const bufferZone = 38; // Buffer zone width
+    const timelineRect = timelineElement?.getBoundingClientRect();
+    const actualMaxPosition = timelineRect ? timelineRect.width - trackContentStart - bufferZone : getActualTimelineWidth();
+    
+    // Convert frames to time in minutes, then use same formula as time markers
+    const timeInMinutes = frames / (TIMELINE_TOTAL_FRAMES / 10); // Convert frames to minutes (0-10)
+    return (timeInMinutes / 10) * actualMaxPosition; // Same as time markers: (time / 10) * actualMaxPosition
   };
-  
+
   // INPUT CONVERSION: Pixels to frames (ONLY for mouse input)
   const pixelsToFrames = (pixels) => {
-    return Math.round((pixels / TIMELINE_WIDTH_PIXELS) * TIMELINE_TOTAL_FRAMES);
+    // Use the same width calculation as time markers (usable timeline width)
+    const timelineElement = document.querySelector('.timeline-content');
+    const trackContentStart = 76; // Track title width
+    const bufferZone = 38; // Buffer zone width
+    const timelineRect = timelineElement?.getBoundingClientRect();
+    const actualWidth = timelineRect ? timelineRect.width - trackContentStart - bufferZone : getActualTimelineWidth();
+    return Math.round((pixels / actualWidth) * TIMELINE_TOTAL_FRAMES);
   };
   
   // Convert frames to time (seconds)
@@ -453,15 +517,7 @@ export default function Timeline() {
       
       // Debug logging
       if (actualPosition) {
-        console.log('Snap Detection:', {
-          magneticStart: startFrames,
-          actualStart: pixelsToFrames(actualPosition.startPixel),
-          startDiff: Math.abs(startFrames - pixelsToFrames(actualPosition.startPixel)),
-          magneticEnd: endFrames,
-          actualEnd: pixelsToFrames(actualPosition.endPixel),
-          endDiff: Math.abs(endFrames - pixelsToFrames(actualPosition.endPixel)),
-          isSnapped: isSnapped
-        });
+        // No console logging for snap detection
       }
       
       const magneticColor = isSnapped ? '#00ff00' : MAGNETIC_COLORS[MAGNETIC_TYPES.DRAGGED_CLIP]; // Green if snapped, yellow if not
@@ -514,91 +570,125 @@ export default function Timeline() {
 
   const updateMagneticPointsFromClips = (clips) => {
     setMagneticPoints(prev => {
-      const newMap = new Map(prev); // PRESERVE EXISTING POINTS
+      // IMMUTABLE: Only add new points, never remove existing ones
+      const newMap = new Map(prev); // PRESERVE ALL EXISTING POINTS
       
       // Convert pixel offset to frames
       const magneticOffsetFrames = pixelsToFrames(MAGNETIC_OFFSET_PIXELS);
       
       // Purple points are handled by updatePlayheadMagneticPoint - don't create them here
       
-      // Add timeline boundaries (ORANGE) - start and end with magnetic offset
-      const timelineStartKey = `${magneticOffsetFrames}_timeline_${MAGNETIC_TYPES.BORDER}`;
-      newMap.set(timelineStartKey, { 
-        frame: magneticOffsetFrames, 
-        track: 'timeline', 
-        type: MAGNETIC_TYPES.BORDER,
-        color: MAGNETIC_COLORS[MAGNETIC_TYPES.BORDER]
-      });
+      // IMMUTABLE: Add timeline boundaries (ORANGE) - use same logic as time markers
+      // Calculate the same way as time markers: (time / 10) * actualMaxPosition
+      const timelineElement = document.querySelector('.timeline-content');
+      const trackContentStart = 76; // Track title width
+      const bufferZone = 38; // Buffer zone width
+      const timelineRect = timelineElement?.getBoundingClientRect();
+      const actualMaxPosition = timelineRect ? timelineRect.width - trackContentStart - bufferZone : getActualTimelineWidth();
       
+      // Timeline start (0 minutes) - same as time marker at 0, but with magnetic offset
+      const timelineStartKey = `${magneticOffsetFrames}_timeline_${MAGNETIC_TYPES.BORDER}`;
+      if (!newMap.has(timelineStartKey)) {
+        newMap.set(timelineStartKey, { 
+          frame: magneticOffsetFrames, // 0 minutes + 95px offset
+          track: 'timeline', 
+          type: MAGNETIC_TYPES.BORDER,
+          color: MAGNETIC_COLORS[MAGNETIC_TYPES.BORDER]
+        });
+      }
+      
+      // Timeline end (10 minutes) - same as time marker at 10, but with magnetic offset
       const timelineEndKey = `${TIMELINE_TOTAL_FRAMES + magneticOffsetFrames}_timeline_${MAGNETIC_TYPES.BORDER}`;
-      newMap.set(timelineEndKey, { 
-        frame: TIMELINE_TOTAL_FRAMES + magneticOffsetFrames, 
-        track: 'timeline', 
-        type: MAGNETIC_TYPES.BORDER,
-        color: MAGNETIC_COLORS[MAGNETIC_TYPES.BORDER]
-      });
+      if (!newMap.has(timelineEndKey)) {
+        newMap.set(timelineEndKey, { 
+          frame: TIMELINE_TOTAL_FRAMES + magneticOffsetFrames, // 10 minutes + 95px offset
+          track: 'timeline',
+          type: MAGNETIC_TYPES.BORDER,
+          color: MAGNETIC_COLORS[MAGNETIC_TYPES.BORDER]
+        });
+      }
       
       // Add all clip start and end points (RED) with offset
+      // IMMUTABLE: Add all clip start and end points (RED) with offset - never remove existing ones
       clips.forEach(clip => {
         if (clip.startFrames !== undefined) {
           const adjustedStart = clip.startFrames + magneticOffsetFrames;
           const startKey = `${adjustedStart}_${clip.track}_${MAGNETIC_TYPES.CLIP_START}`;
-          newMap.set(startKey, { 
-            frame: adjustedStart, 
-            track: clip.track, 
-            type: MAGNETIC_TYPES.CLIP_START,
-            color: MAGNETIC_COLORS[MAGNETIC_TYPES.CLIP_START]
-          });
+          // Only add if it doesn't already exist
+          if (!newMap.has(startKey)) {
+            newMap.set(startKey, { 
+              frame: adjustedStart, 
+              track: clip.track, 
+              type: MAGNETIC_TYPES.CLIP_START,
+              color: MAGNETIC_COLORS[MAGNETIC_TYPES.CLIP_START]
+            });
+          }
         }
         
         if (clip.endFrames !== undefined) {
           const adjustedEnd = clip.endFrames + magneticOffsetFrames;
           const endKey = `${adjustedEnd}_${clip.track}_${MAGNETIC_TYPES.CLIP_END}`;
-          newMap.set(endKey, { 
-            frame: adjustedEnd, 
-            track: clip.track, 
-            type: MAGNETIC_TYPES.CLIP_END,
-            color: MAGNETIC_COLORS[MAGNETIC_TYPES.CLIP_END]
-          });
+          // Only add if it doesn't already exist
+          if (!newMap.has(endKey)) {
+            newMap.set(endKey, { 
+              frame: adjustedEnd, 
+              track: clip.track, 
+              type: MAGNETIC_TYPES.CLIP_END,
+              color: MAGNETIC_COLORS[MAGNETIC_TYPES.CLIP_END]
+            });
+          }
         }
       });
       
       // Debug: Log magnetic points when debug is enabled
       if (showMagneticDebug) {
-        console.log('=== MAGNETIC POINTS UPDATE ===');
-        console.log('Playhead position:', playheadPosition, 'frames');
-        console.log('Timeline boundaries: 0 to', TIMELINE_TOTAL_FRAMES, 'frames');
-        console.log('Clips:', clips.length);
-        clips.forEach((clip, index) => {
-          console.log(`Clip ${index}:`, {
-            startFrames: clip.startFrames,
-            endFrames: clip.endFrames,
-            startPixel: clip.startPixel,
-            endPixel: clip.endPixel,
-            track: clip.track
-          });
-        });
-        console.log('Total magnetic points:', newMap.size);
-        console.log('=== END MAGNETIC POINTS UPDATE ===');
+        // No console logging for magnetic points update
       }
+      
+      // No console logging for magnetic points
       
       return newMap;
     });
   };
 
-  // Snapshot current magnetic points when dragging starts
-  const snapshotCurrentMagneticPoints = () => {
-    const snapshot = new Map(magneticPoints);
-    setSnapshotMagneticPoints(snapshot);
-    currentSnapshotRef.current = snapshot; // Store in ref for immediate use
-    return snapshot; // Return the snapshot immediately
+  // No snapshot needed - use live magnetic points data directly
+
+  // Helper function to list all magnetic points (only show when 3+ points)
+  const listAllMagneticPoints = (points, label = 'MAGNETIC POINTS') => {
+    const pointsArray = Array.from(points.values());
+    
+    // Only show magnetic points when there are more than 3 points
+    if (pointsArray.length > 3) {
+      console.log(`=== ${label} ===`);
+      console.log(`Total points: ${pointsArray.length}`);
+      pointsArray.forEach((point, index) => {
+        console.log(`  Point ${index}:`, {
+          frame: point.frame,
+          track: point.track,
+          type: point.type,
+          color: point.color
+        });
+      });
+      console.log(`=== END ${label} ===`);
+    }
   };
 
-  const updatePlayheadMagneticPoint = (newPlayheadPosition) => {
+  const updatePlayheadMagneticPoint = (newPlayheadPosition, logUpdate = false) => {
+    // Only log when explicitly requested (like when drag ends)
+    
+    // Prevent spam by only updating if position changed significantly (every 100 frames)
+    const roundedPosition = Math.floor(newPlayheadPosition / 100) * 100;
+    const lastPosition = lastLogRef.current.lastPlayheadPosition || 0;
+    if (Math.abs(roundedPosition - lastPosition) < 100 && !logUpdate) {
+      return; // Skip update if position hasn't changed significantly
+    }
+    lastLogRef.current.lastPlayheadPosition = roundedPosition;
+    
     setMagneticPoints(prev => {
       const newMap = new Map(prev);
       
-      // Remove ALL old playhead positions (clean up any duplicates)
+      // IMMUTABLE: Remove only old playhead positions, keep all other points
+      // Keep only the most recent playhead position
       for (const [key, value] of newMap.entries()) {
         if (value.type === MAGNETIC_TYPES.PLAYHEAD) {
           newMap.delete(key);
@@ -610,12 +700,18 @@ export default function Timeline() {
         const playheadDragOffsetFrames = pixelsToFrames(PLAYHEAD_DRAG_OFFSET);
         const adjustedPlayhead = newPlayheadPosition + playheadDragOffsetFrames;
         const newPlayheadKey = `${adjustedPlayhead}_playhead_${MAGNETIC_TYPES.PLAYHEAD}`;
-        newMap.set(newPlayheadKey, { 
+        // Only log when explicitly requested (like when drag ends)
+        newMap.set(newPlayheadKey, {
           frame: adjustedPlayhead, 
           track: 'playhead', 
           type: MAGNETIC_TYPES.PLAYHEAD,
           color: MAGNETIC_COLORS[MAGNETIC_TYPES.PLAYHEAD]
         });
+      }
+      
+      // List all points after update if logging is enabled
+      if (logUpdate) {
+        // No console logging for playhead update
       }
       
       return newMap;
@@ -630,7 +726,7 @@ export default function Timeline() {
     const frameSnapThreshold = snapThresholdPixels ? pixelsToFrames(snapThresholdPixels) : MAGNETIC_SNAP_THRESHOLD_FRAMES;
     
     // Use snapshot magnetic points when dragging clips, otherwise use live points
-    const pointsToUse = isDraggingClip ? snapshotMagneticPoints : magneticPoints;
+    const pointsToUse = magneticPoints; // Always use live data
     pointsToUse.forEach((point, key) => {
       const { frame, track, type } = point;
       
@@ -702,10 +798,8 @@ export default function Timeline() {
     let minDistance = Infinity;
     let snapToStart = true; // Default to snapping start position
     
-    // USE THE EXACT SAME POINTS AS THE DEBUG PANEL
-    const debugPoints = Array.from(magneticPoints.values());
-    console.log('MAGNETISM: Using', debugPoints.length, 'points from debug panel');
-    console.log('MAGNETISM: Points are:', debugPoints);
+    // USE LIVE MAGNETIC POINTS (no snapshot needed)
+    const debugPoints = Array.from(magneticPointsRef.current.values());
     
     debugPoints.forEach((point) => {
       if (point.type === MAGNETIC_TYPES.DRAGGED_CLIP) {
@@ -720,7 +814,7 @@ export default function Timeline() {
         minDistance = startDistance;
         closestPoint = frame;
         snapToStart = true;
-        console.log('Found start snap:', { frame, type, distance: startDistance });
+        // No console logging for start snap
       }
       
       // Check distance to end position (using adjusted positions)
@@ -729,13 +823,13 @@ export default function Timeline() {
         minDistance = endDistance;
         closestPoint = frame;
         snapToStart = false;
-        console.log('Found end snap:', { frame, type, distance: endDistance });
+        // No console logging for end snap
       }
     });
     
     // If we found a close point, snap to it
     if (closestPoint !== null) {
-      console.log('Snapping to:', { closestPoint, snapToStart });
+      // No console logging for snapping
       if (snapToStart) {
         // Snap start position, adjust end accordingly
         // Remove the magnetic offset from the result since we added it to the input
@@ -793,18 +887,26 @@ export default function Timeline() {
     updateMagneticPointsFromClips(timelineClips);
   }, [timelineClips]); // This will run on mount when timelineClips is []
 
+  // Keep magneticPointsRef in sync with magneticPoints state
+  useEffect(() => {
+    magneticPointsRef.current = magneticPoints;
+  }, [magneticPoints]);
+
+  // Initialize playhead magnetic point on mount
+  useEffect(() => {
+    updatePlayheadMagneticPoint(playheadPosition, true); // Log initial creation
+  }, []); // Run once on mount
+
   // Update playhead magnetic point when playhead moves (but not during clip dragging)
   useEffect(() => {
     // Only update magnetic points if we're not dragging clips
     if (!isDraggingClip) {
-      updatePlayheadMagneticPoint(playheadPosition);
+      updatePlayheadMagneticPoint(playheadPosition, false); // Don't log during drag
     }
   }, [playheadPosition, isDraggingClip]);
 
   // Update dragged clip magnetic points when drag preview changes
-  useEffect(() => {
-    updateDraggedClipMagneticPoints(dragPreview, draggedClipActualPosition);
-  }, [dragPreview, draggedClipActualPosition]);
+  // Note: This is now called directly from the drag handlers to avoid infinite loops
 
   // Handle document-level mouse events for dragging
   useEffect(() => {
@@ -829,7 +931,12 @@ export default function Timeline() {
         // The playhead magnetic point should not change during clip operations
       };
       
+      // No snapshot needed - magnetism uses live data
+      
       timelineElement.addEventListener('requestPlayheadPosition', handlePlayheadRequest);
+      // No snapshot event listener needed
+      
+      
       const handleTimelineDropEvent = (e) => {
         const { clip, clientX, clientY, track } = e.detail;
         const timelineRect = timelineElement.getBoundingClientRect();
@@ -845,37 +952,82 @@ export default function Timeline() {
           // Use track from drop event, fallback to drag preview, then default to track 1
           const targetTrack = track || (dragPreview ? dragPreview.track : 1);
           
-          // Create new clip with duration (convert to frames)
-          const baseId = `clip_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          // Check if this is a timeline clip being moved (not a new clip from ClipList)
+          const isTimelineClip = clip.id && timelineClips.some(timelineClip => timelineClip.id === clip.id);
+          
+          if (isTimelineClip) {
+            // Moving existing timeline clip
+            console.log('Moving timeline clip:', clip.id);
+            
+            // Calculate new position
+            const constrainedRelativeX = Math.max(relativeX, 0);
+            const startFrames = pixelsToFrames(constrainedRelativeX);
+            const durationInFrames = clip.endFrames - clip.startFrames;
+            const endFrames = startFrames + durationInFrames;
+            
+            // Apply magnetism to snap to nearby elements
+            const snappedPosition = applyDraggedClipMagnetism(startFrames, endFrames);
+            const snappedStartFrames = snappedPosition.startFrames;
+            const snappedEndFrames = snappedPosition.endFrames;
+            
+            // Apply timeline boundary constraints
+            const constrainedPosition = applyTimelineBoundaries(snappedStartFrames, snappedEndFrames);
+            
+            if (constrainedPosition) {
+              // Convert to pixels for display
+              const startPixel = framesToPixels(constrainedPosition.startFrames);
+              const endPixel = framesToPixels(constrainedPosition.endFrames);
+              const widthPixel = endPixel - startPixel;
+              
+              // Convert pixel position to time
+              const startTime = pixelToTime(startPixel);
+              
+              // Update the existing clip
+              setTimelineClips(prev => prev.map(timelineClip => 
+                timelineClip.id === clip.id 
+                  ? {
+                      ...timelineClip,
+                      track: targetTrack,
+                      startTime: startTime,
+                      startPixel: startPixel,
+                      endPixel: endPixel,
+                      widthPixel: widthPixel,
+                      startFrames: constrainedPosition.startFrames,
+                      endFrames: constrainedPosition.endFrames
+                    }
+                  : timelineClip
+              ));
+            }
+          } else {
+            // Creating new clip from ClipList
+            const baseId = `clip_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
           
           // Use the duration that was already loaded in ClipList
           let clipDuration = 5; // Default fallback
-          console.log('=== DURATION FROM CLIPLIST IN DROP ===');
-          console.log('Clip duration from ClipList:', clip.duration, 'Type:', typeof clip.duration);
+          // No console logging for duration parsing
           
           // Handle both numeric duration (from ClipList) and MM:SS format
           if (typeof clip.duration === 'number' && clip.duration > 0) {
             // Duration is already in seconds (from ClipList processing)
             clipDuration = clip.duration;
-            console.log('Using numeric duration from ClipList:', clipDuration, 'seconds');
+            // No console logging
           } else if (clip.duration && clip.duration !== "0:00") {
             // Duration is in MM:SS format
             const durationStr = clip.duration.toString();
-            console.log('Duration string from ClipList:', durationStr);
+            // No console logging
             const parts = durationStr.split(':');
-            console.log('Split parts:', parts);
             if (parts.length === 2) {
               const minutes = parseInt(parts[0]);
               const seconds = parseInt(parts[1]);
               clipDuration = minutes * 60 + seconds;
-              console.log('Parsed MM:SS duration from ClipList:', clipDuration, 'seconds');
+              // No console logging
             } else {
-              console.log('Invalid duration format from ClipList, using fallback');
+              // No console logging
             }
           } else {
-            console.log('Duration from ClipList is "0:00" or falsy, using fallback');
+            // No console logging
           }
-          console.log('=== END DURATION FROM CLIPLIST ===');
+          // No console logging for duration parsing
           
           const durationInFrames = timeToFrames(clipDuration); // Convert seconds to frames
           
@@ -886,8 +1038,9 @@ export default function Timeline() {
           const endFrames = startFrames + durationInFrames;
           
           // Apply magnetism to snap to nearby elements (all in frames)
-          const snappedStartFrames = applyMagnetism(startFrames, 10, targetTrack, framesToPixels(durationInFrames));
-          const snappedEndFrames = snappedStartFrames + durationInFrames;
+          const snappedPosition = applyDraggedClipMagnetism(startFrames, startFrames + durationInFrames);
+          const snappedStartFrames = snappedPosition.startFrames;
+          const snappedEndFrames = snappedPosition.endFrames;
           
           // Apply timeline boundary constraints
           const constrainedPosition = applyTimelineBoundaries(snappedStartFrames, snappedEndFrames);
@@ -935,20 +1088,27 @@ export default function Timeline() {
               setTimelineClips(prev => [...prev, ...additionalClips]);
             }
           }
+          }
         }
         
         // Clear drag preview and reset playhead capture
         setDragPreview(null);
         setDragStartPlayheadPosition(null);
+        setIsDraggingClip(false);
+        setDraggedClipActualPosition(null);
       };
       
       const handleTimelineDragOver = (e) => {
-        e.preventDefault();
+        // Only prevent default for drag operations, allow right clicks
+        if (e.type === 'dragover') {
+          e.preventDefault();
+        }
         
         // Set clip dragging state
         setIsDraggingClip(true);
         
-        // No need to snapshot - using live magnetic points
+        // Take snapshot of magnetic points when dragging starts
+        // No snapshot needed - magnetism uses live data
         
         // Check if there's a clip being dragged from ClipList
         const draggedClip = document.querySelector('.clip-drag-preview');
@@ -977,17 +1137,20 @@ export default function Timeline() {
             }
             
             // Calculate which track the mouse is over
-            // Tracks start at 60px and are 50px high each
-            const trackHeight = 50;
-            const trackStartY = 60;
-            const relativeY = mouseY - trackStartY;
+            // Simple track assignment based on Y position
+            let targetTrack = 3; // Default to track 3 (highest) when dragging above timeline
             
-            // Calculate track index (0-based from top)
-            const trackIndex = Math.floor(relativeY / trackHeight);
-            
-            // Convert to track number (1-based, counting from bottom)
-            // Track 1 is at the bottom (highest Y values), Track 3 is at the top (lowest Y values)
-            const targetTrack = Math.max(1, Math.min(3 - trackIndex, 3));
+            if (mouseY >= 100 && mouseY < 150) {
+              targetTrack = 3; // Top track (100-150px from timeline top)
+            } else if (mouseY >= 150 && mouseY < 200) {
+              targetTrack = 2; // Middle track (150-200px from timeline top)
+            } else if (mouseY >= 200 && mouseY < 250) {
+              targetTrack = 1; // Bottom track (200-250px from timeline top)
+            } else if (mouseY < 100) {
+              targetTrack = 3; // Above timeline area - default to highest track
+            } else {
+              targetTrack = 1; // Below timeline area - default to lowest track
+            }
             
             // Apply magnetism to snap to nearby elements (all in frames)
             // Handle both numeric duration (from ClipList) and MM:SS format
@@ -1045,6 +1208,8 @@ export default function Timeline() {
               
               setDragPreview(dragPreviewData);
               setDraggedClipActualPosition(actualPositionData);
+              // Update dragged clip magnetic points for yellow lines
+              updateDraggedClipMagneticPoints(dragPreviewData, actualPositionData);
             } else {
               // Clip would be outside boundaries, don't show preview
               setDragPreview(null);
@@ -1114,14 +1279,17 @@ export default function Timeline() {
                 const endPixel = framesToPixels(constrainedPosition.endFrames);
                 const widthPixel = endPixel - startPixel;
                 
-                setDragPreview({
+                const dragPreviewData = {
                   startPixel: startPixel,
                   endPixel: endPixel,
                   widthPixel: widthPixel,
                   character: customDragEvent.clip.character || 'Clip',
                   duration: duration,
                   track: targetTrack
-                });
+                };
+                setDragPreview(dragPreviewData);
+                // Update dragged clip magnetic points for yellow lines
+                updateDraggedClipMagneticPoints(dragPreviewData, null);
               } else {
                 // Clip would be outside boundaries, don't show preview
                 setDragPreview(null);
@@ -1155,6 +1323,25 @@ export default function Timeline() {
         const trackContentStart = 76;
         const relativeX = mouseX - trackContentStart;
         
+        // Check if this is a timeline clip being dragged (has id and exists in timelineClips)
+        const isTimelineClip = clip.id && timelineClips.some(timelineClip => timelineClip.id === clip.id);
+        
+        // If it's a timeline clip, remove old magnetic points for this clip
+        if (isTimelineClip) {
+          setMagneticPoints(prev => {
+            const newMap = new Map(prev);
+            // Remove old magnetic points for this clip
+            for (const [key, value] of newMap.entries()) {
+              if (value.track === clip.track && 
+                  (value.frame === clip.startFrames + pixelsToFrames(MAGNETIC_OFFSET_PIXELS) ||
+                   value.frame === clip.endFrames + pixelsToFrames(MAGNETIC_OFFSET_PIXELS))) {
+                newMap.delete(key);
+              }
+            }
+            return newMap;
+          });
+        }
+        
         
         if (mouseY >= 60) {
           // Handle both numeric duration (from ClipList) and MM:SS format
@@ -1176,7 +1363,7 @@ export default function Timeline() {
           const relativeY = mouseY - trackStartY;
           
           // Find which track the mouse is closest to
-          let targetTrack = 3; // Default to track 3 (highest)
+          let targetTrack = 3; // Default to track 3 (highest) when dragging above timeline
           
           if (mouseY >= 100 && mouseY < 150) {
             targetTrack = 3; // Top track (100-150px from timeline top)
@@ -1184,6 +1371,10 @@ export default function Timeline() {
             targetTrack = 2; // Middle track (150-200px from timeline top)
           } else if (mouseY >= 200 && mouseY < 250) {
             targetTrack = 1; // Bottom track (200-250px from timeline top)
+          } else if (mouseY < 100) {
+            targetTrack = 3; // Above timeline area - default to highest track
+          } else {
+            targetTrack = 1; // Below timeline area - default to lowest track
           }
           
           
@@ -1223,7 +1414,7 @@ export default function Timeline() {
             const endPixel = framesToPixels(constrainedPosition.endFrames);
             const widthPixel = endPixel - startPixel;
             
-            setDragPreview({
+            const dragPreviewData = {
               startPixel: startPixel,
               endPixel: endPixel,
               widthPixel: widthPixel,
@@ -1232,7 +1423,10 @@ export default function Timeline() {
               track: targetTrack,
               multiTrack: isMultiTrack,
               mouseY: mouseY // Add mouse Y for debugging
-            });
+            };
+            setDragPreview(dragPreviewData);
+            // Update dragged clip magnetic points for yellow lines
+            updateDraggedClipMagneticPoints(dragPreviewData, null);
           } else {
             // Clip would be outside boundaries, don't show preview
             setDragPreview(null);
@@ -1265,6 +1459,94 @@ export default function Timeline() {
       timelineElement.addEventListener('timelineDragLeave', handleTimelineDragLeaveEvent);
       timelineElement.addEventListener('timelineDragClear', handleTimelineDragClear);
       timelineElement.addEventListener('requestPlayheadPosition', handlePlayheadRequest);
+      // No snapshot event listener needed
+      
+      // Track mouse movement during timeline clip drag (EXACT same as ClipList)
+      const handleTimelineClipMouseMove = (e) => {
+        if (isDraggingClip && dragPreview) {
+          // Check if over timeline (same logic as ClipList)
+          const timelineRect = timelineElement.getBoundingClientRect();
+          const mouseX = e.clientX;
+          const mouseY = e.clientY;
+          
+          // Check if mouse is over timeline area
+          const isOver = mouseX >= timelineRect.left && mouseX <= timelineRect.right &&
+                        mouseY >= timelineRect.top && mouseY <= timelineRect.bottom;
+          
+          // Dispatch custom drag over event to timeline (EXACT same as ClipList)
+          if (isOver) {
+            const dragOverEvent = new CustomEvent('timelineDragOver', {
+              detail: {
+                clip: dragPreview,
+                clientX: mouseX,
+                clientY: mouseY,
+                ctrlKey: e.ctrlKey,
+                metaKey: e.metaKey
+              }
+            });
+            timelineElement.dispatchEvent(dragOverEvent);
+          } else {
+            // Dispatch drag leave event when not over timeline (same as ClipList)
+            const dragLeaveEvent = new CustomEvent('timelineDragLeave', {
+              detail: {
+                clip: dragPreview,
+                clientX: mouseX,
+                clientY: mouseY
+              }
+            });
+            timelineElement.dispatchEvent(dragLeaveEvent);
+          }
+        }
+      };
+      
+      document.addEventListener('mousemove', handleTimelineClipMouseMove);
+      
+      // Handle mouse up for timeline clips (EXACT same as ClipList)
+      const handleTimelineClipMouseUp = (e) => {
+        if (isDraggingClip && dragPreview) {
+          // Check if dropping over timeline
+          const timelineRect = timelineElement.getBoundingClientRect();
+          const mouseX = e.clientX;
+          const mouseY = e.clientY;
+          
+          // Check if mouse is over timeline area
+          if (mouseX >= timelineRect.left && mouseX <= timelineRect.right &&
+              mouseY >= timelineRect.top && mouseY <= timelineRect.bottom) {
+            
+            // Calculate track based on mouse position (same as ClipList)
+            const relativeY = mouseY - timelineRect.top;
+            let targetTrack = 3; // Default to track 3 (highest)
+            
+            // Use the same track boundaries as ClipList
+            if (relativeY >= 100 && relativeY < 150) {
+              targetTrack = 3; // Top track
+            } else if (relativeY >= 150 && relativeY < 200) {
+              targetTrack = 2; // Middle track
+            } else if (relativeY >= 200 && relativeY < 250) {
+              targetTrack = 1; // Bottom track
+            }
+            
+            // Create a synthetic drop event (same as ClipList)
+            const dropEvent = new CustomEvent('timelineDrop', {
+              detail: {
+                clip: dragPreview,
+                clientX: mouseX,
+                clientY: mouseY,
+                track: targetTrack
+              }
+            });
+            timelineElement.dispatchEvent(dropEvent);
+          }
+          
+          // Reset drag state (same as ClipList)
+          setIsDraggingClip(false);
+          setDragPreview(null);
+          setDraggedClipActualPosition(null);
+          updateDraggedClipMagneticPoints(null);
+        }
+      };
+      
+      document.addEventListener('mouseup', handleTimelineClipMouseUp);
       
       return () => {
         timelineElement.removeEventListener('timelineDrop', handleTimelineDropEvent);
@@ -1274,6 +1556,10 @@ export default function Timeline() {
         timelineElement.removeEventListener('timelineDragLeave', handleTimelineDragLeaveEvent);
         timelineElement.removeEventListener('timelineDragClear', handleTimelineDragClear);
         timelineElement.removeEventListener('requestPlayheadPosition', handlePlayheadRequest);
+        document.removeEventListener('mousemove', handleTimelineClipMouseMove);
+        document.removeEventListener('mouseup', handleTimelineClipMouseUp);
+        // No snapshot event listener to remove
+        
       };
     }
   }, []);
@@ -1442,8 +1728,12 @@ export default function Timeline() {
           {Array.from({ length: 11 }, (_, i) => {
             const time = i; // 0, 1, 2, ..., 10 minutes
             // Calculate position in pixels within available area (excluding buffer zone)
-            // Use the actual constraint value - 1890 pixels from the beginning
-            const actualMaxPosition = 1890; // This is the actual constraint value
+            // Use the actual usable timeline width (excluding track title and buffer)
+            const timelineElement = document.querySelector('.timeline-content');
+            const trackContentStart = 76; // Track title width
+            const bufferZone = 38; // Buffer zone width
+            const timelineRect = timelineElement?.getBoundingClientRect();
+            const actualMaxPosition = timelineRect ? timelineRect.width - trackContentStart - bufferZone : getActualTimelineWidth();
             const position = (time / 10) * actualMaxPosition; // Position in pixels
             return (
               <div
@@ -1561,17 +1851,59 @@ export default function Timeline() {
               Video {trackNum}
             </div>
              {/* Track Area */}
-             <div style={{
+             <div              style={{
                flex: 1,
                background: "#f8f9fa",
                position: "relative"
-             }}>
+             }}
+>
                {/* Render clips on this track */}
                {timelineClips
                  .filter(clip => clip.track === trackNum)
                  .map(clip => (
                    <div
                      key={clip.id}
+                     data-clip-id={clip.id}
+                     onClick={(e) => {
+                       e.stopPropagation(); // Prevent timeline click
+                       console.log('Timeline clip clicked:', clip);
+                       // Pass clip data to parent component for preview
+                       if (onClipSelect && typeof onClipSelect === 'function') {
+                         onClipSelect(clip);
+                       }
+                     }}
+                     onMouseDown={(e) => {
+                       e.stopPropagation(); // Prevent timeline click
+                       console.log('Timeline clip mouse down:', clip);
+                       
+                       // Start drag operation (same as ClipList)
+                       setIsDraggingClip(true);
+                       setDragPreview({
+                         ...clip,
+                         track: clip.track,
+                         startPixel: clip.startPixel,
+                         endPixel: clip.endPixel,
+                         widthPixel: clip.widthPixel
+                       });
+                     }}
+                     onMouseEnter={(e) => {
+                       e.target.style.background = "#0056b3"; // Darker blue on hover
+                       e.target.style.transform = "scale(1.02)"; // Slight scale up
+                       // Keep black border if selected
+                       if (selectedClip?.id === clip.id) {
+                         e.target.style.border = "2px solid #000000";
+                       }
+                     }}
+                     onMouseLeave={(e) => {
+                       e.target.style.background = "#007bff"; // Back to original blue
+                       e.target.style.transform = "scale(1)"; // Back to original size
+                       // Restore proper border based on selection state
+                       if (selectedClip?.id === clip.id) {
+                         e.target.style.border = "2px solid #000000";
+                       } else {
+                         e.target.style.border = "1px solid #0056b3";
+                       }
+                     }}
                      style={{
                        position: "absolute",
                        left: `${clip.startPixel}px`,
@@ -1579,7 +1911,7 @@ export default function Timeline() {
                        bottom: "5px",
                        width: `${clip.widthPixel}px`,
                        background: "#007bff",
-                       border: "1px solid #0056b3",
+                       border: selectedClip?.id === clip.id ? "2px solid #000000" : "1px solid #0056b3",
                        borderRadius: "3px",
                        display: "flex",
                        alignItems: "center",
@@ -1588,9 +1920,10 @@ export default function Timeline() {
                        fontSize: "10px",
                        fontWeight: "600",
                        cursor: "pointer",
-                       userSelect: "none"
+                       userSelect: "none",
+                       transition: "all 0.2s ease"
                      }}
-                     title={`${clip.character} - ${clip.filename} (${clip.duration}s, ${clip.widthPixel}px wide)`}
+                     title={`${clip.character} - ${clip.filename} (${clip.duration}s, ${clip.widthPixel}px wide) - Click to preview`}
                    >
                      {clip.character}
                    </div>
@@ -1816,36 +2149,7 @@ export default function Timeline() {
        {/* Timeline Boundaries - Orange lines for start/end */}
        {showMagneticDebug && (
          <>
-           {/* Timeline Start (0 frames + magnetic offset) - Shows where magnetism will occur */}
-           <div
-             style={{
-               position: "absolute",
-               left: `${getActualTimelineStart() + framesToPixels(pixelsToFrames(MAGNETIC_OFFSET_PIXELS))}px`,
-               top: "60px",
-               bottom: "0px",
-               width: "1px",
-               background: "#ff8800",
-               zIndex: 25,
-               pointerEvents: "none",
-               opacity: 0.9
-             }}
-             title={`Timeline Start Magnetic Point: ${getActualTimelineStart() + MAGNETIC_OFFSET_PIXELS}px (offset: ${MAGNETIC_OFFSET_PIXELS}px)`}
-           />
-           {/* Timeline End (36000 frames + magnetic offset) - Shows where magnetism will occur */}
-           <div
-             style={{
-               position: "absolute",
-               left: `${getActualTimelineStart() + framesToPixels(TIMELINE_TOTAL_FRAMES) + MAGNETIC_OFFSET_PIXELS}px`,
-               top: "60px",
-               bottom: "0px",
-               width: "1px",
-               background: "#ff8800",
-               zIndex: 25,
-               pointerEvents: "none",
-               opacity: 0.9
-             }}
-             title={`Timeline End Magnetic Point: ${getActualTimelineStart() + framesToPixels(TIMELINE_TOTAL_FRAMES) + MAGNETIC_OFFSET_PIXELS}px (offset: ${MAGNETIC_OFFSET_PIXELS}px)`}
-           />
+           {/* Timeline boundaries are now shown as dynamic magnetic points above */}
          </>
        )}
        
