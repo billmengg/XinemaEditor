@@ -15,6 +15,7 @@ export default function Timeline({ onClipSelect, selectedClip }) {
   const [showMagneticDebug, setShowMagneticDebug] = useState(false); // Show magnetic debug
   const [isDraggingClip, setIsDraggingClip] = useState(false); // Track if we're dragging a clip
   const [draggedClipActualPosition, setDraggedClipActualPosition] = useState(null); // Actual mouse position of dragged clip
+  const [dragPosition, setDragPosition] = useState({ x: 0, y: 0 }); // Mouse position during drag
   // No snapshot needed - use live magnetic points data
   const magneticPointsRef = useRef(new Map()); // Ref to track current magnetic points for event handlers
   const lastLogRef = useRef({}); // Track last logged messages to prevent duplicates
@@ -198,8 +199,71 @@ export default function Timeline({ onClipSelect, selectedClip }) {
   };
 
   const handleMouseMove = (e) => {
+    // Update drag position for timeline clips
+    if (isDraggingClip) {
+      setDragPosition({ x: e.clientX, y: e.clientY });
+      
+      // Update drag preview position with magnetism (same as cliplist)
+      const timelineContent = document.querySelector('.timeline-content');
+      if (timelineContent && dragPreview) {
+        const timelineRect = timelineContent.getBoundingClientRect();
+        const mouseX = e.clientX - timelineRect.left;
+        const mouseY = e.clientY - timelineRect.top;
+        const trackContentStart = 76;
+        const relativeX = mouseX - trackContentStart;
+        
+        // Calculate which track the mouse is over
+        let targetTrack = 3; // Default to track 3 (highest)
+        if (mouseY >= 100 && mouseY < 150) {
+          targetTrack = 3; // Top track
+        } else if (mouseY >= 150 && mouseY < 200) {
+          targetTrack = 2; // Middle track
+        } else if (mouseY >= 200 && mouseY < 250) {
+          targetTrack = 1; // Bottom track
+        } else if (mouseY < 100) {
+          targetTrack = 3; // Above timeline area
+        } else {
+          targetTrack = 1; // Below timeline area
+        }
+        
+        if (relativeX >= 0 && mouseY >= 60) {
+          // Calculate new position with magnetism
+          const durationInFrames = dragPreview.endFrames - dragPreview.startFrames;
+          const positionFrames = pixelsToFrames(relativeX);
+          const initialEndFrames = positionFrames + durationInFrames;
+          
+          // Apply magnetism
+          const snappedPosition = applyDraggedClipMagnetism(positionFrames, initialEndFrames);
+          const constrainedPosition = applyTimelineBoundaries(snappedPosition.startFrames, snappedPosition.endFrames);
+          
+          if (constrainedPosition) {
+            const startPixel = framesToPixels(constrainedPosition.startFrames);
+            const endPixel = framesToPixels(constrainedPosition.endFrames);
+            const widthPixel = endPixel - startPixel;
+            
+            // Update drag preview with new position
+            setDragPreview(prev => ({
+              ...prev,
+              track: targetTrack,
+              startPixel: startPixel,
+              endPixel: endPixel,
+              widthPixel: widthPixel
+            }));
+            
+            // Update dragged clip magnetic points
+            updateDraggedClipMagneticPoints({
+              ...dragPreview,
+              track: targetTrack,
+              startPixel: startPixel,
+              endPixel: endPixel,
+              widthPixel: widthPixel
+            }, null);
+          }
+        }
+      }
+    }
     // ONLY update playhead if we're actually dragging the playhead AND not dragging clips
-    if (isDraggingPlayhead && !isDraggingClip) {
+    else if (isDraggingPlayhead && !isDraggingClip) {
       // Only prevent default for left clicks, allow right clicks for context menu
       if (e.button === 0 || e.button === undefined) { // Left mouse button or undefined (mousemove)
         e.preventDefault(); // Prevent default selection behavior during dragging
@@ -241,14 +305,36 @@ export default function Timeline({ onClipSelect, selectedClip }) {
   };
 
   const handleMouseUp = () => {
+    // Handle timeline clip drop
+    if (isDraggingClip && dragPreview) {
+      // Update the existing clip with new position
+      setTimelineClips(prev => prev.map(clip => 
+        clip.id === dragPreview.id 
+          ? {
+              ...clip,
+              track: dragPreview.track,
+              startPixel: dragPreview.startPixel,
+              endPixel: dragPreview.endPixel,
+              widthPixel: dragPreview.widthPixel,
+              startFrames: pixelsToFrames(dragPreview.startPixel),
+              endFrames: pixelsToFrames(dragPreview.endPixel)
+            }
+          : clip
+      ));
+      
+      // Clear drag state
+      setIsDraggingClip(false);
+      setDragPreview(null);
+      setDraggedClipActualPosition(null);
+      updateDraggedClipMagneticPoints(null);
+    }
     // Log playhead position when playhead dragging ends (not during clip dragging)
-    if (isDraggingPlayhead && !isDraggingClip) {
+    else if (isDraggingPlayhead && !isDraggingClip) {
       // No console logging for playhead drag end
       // Update playhead magnetic point with logging when drag ends
       updatePlayheadMagneticPoint(playheadPosition, true);
     }
     setIsDraggingPlayhead(false);
-    setIsDraggingClip(false);
   };
 
   // Handle drag over timeline
@@ -910,7 +996,7 @@ export default function Timeline({ onClipSelect, selectedClip }) {
 
   // Handle document-level mouse events for dragging
   useEffect(() => {
-    if (isDraggingPlayhead) {
+    if (isDraggingPlayhead || isDraggingClip) {
       document.addEventListener('mousemove', handleMouseMove);
       document.addEventListener('mouseup', handleMouseUp);
       
@@ -919,7 +1005,50 @@ export default function Timeline({ onClipSelect, selectedClip }) {
         document.removeEventListener('mouseup', handleMouseUp);
       };
     }
-  }, [isDraggingPlayhead]);
+  }, [isDraggingPlayhead, isDraggingClip]);
+
+  // Handle keyboard events for clip removal
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Only handle backspace when a clip is selected and we're not in a drag operation
+      if (e.key === 'Backspace' && selectedClip && !isDraggingClip && !isDraggingPlayhead) {
+        e.preventDefault();
+        
+        // Remove the selected clip from timeline
+        setTimelineClips(prev => {
+          const updatedClips = prev.filter(clip => clip.id !== selectedClip.id);
+          // Update magnetic points when clips change
+          updateMagneticPointsFromClips(updatedClips);
+          return updatedClips;
+        });
+        
+        // Also remove magnetic points for the deleted clip specifically
+        setMagneticPoints(prev => {
+          const newMap = new Map(prev);
+          // Remove magnetic points for the deleted clip
+          for (const [key, value] of newMap.entries()) {
+            if (value.track === selectedClip.track && 
+                (value.frame === selectedClip.startFrames + pixelsToFrames(MAGNETIC_OFFSET_PIXELS) ||
+                 value.frame === selectedClip.endFrames + pixelsToFrames(MAGNETIC_OFFSET_PIXELS))) {
+              newMap.delete(key);
+            }
+          }
+          return newMap;
+        });
+        
+        // Clear selection
+        if (onClipSelect && typeof onClipSelect === 'function') {
+          onClipSelect(null);
+        }
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [selectedClip, isDraggingClip, isDraggingPlayhead, onClipSelect]);
 
   // Handle custom timeline drop events from ClipList
   useEffect(() => {
@@ -1693,6 +1822,7 @@ export default function Timeline({ onClipSelect, selectedClip }) {
              {formatTimeFromFrames(playheadPosition)}
            </div>
            
+           
            {/* Start and End Time Displays */}
            <div style={{
              position: "absolute",
@@ -1885,6 +2015,20 @@ export default function Timeline({ onClipSelect, selectedClip }) {
                          endPixel: clip.endPixel,
                          widthPixel: clip.widthPixel
                        });
+                       
+                       // Remove old magnetic points for this clip (EXACT same as cliplist)
+                       setMagneticPoints(prev => {
+                         const newMap = new Map(prev);
+                         // Remove old magnetic points for this clip
+                         for (const [key, value] of newMap.entries()) {
+                           if (value.track === clip.track && 
+                               (value.frame === clip.startFrames + pixelsToFrames(MAGNETIC_OFFSET_PIXELS) ||
+                                value.frame === clip.endFrames + pixelsToFrames(MAGNETIC_OFFSET_PIXELS))) {
+                             newMap.delete(key);
+                           }
+                         }
+                         return newMap;
+                       });
                      }}
                      onMouseEnter={(e) => {
                        e.target.style.background = "#0056b3"; // Darker blue on hover
@@ -1956,32 +2100,6 @@ export default function Timeline({ onClipSelect, selectedClip }) {
                  </div>
                )}
                
-               {/* Debug Visual for Drag Preview */}
-               {dragPreview && dragPreview.track === trackNum && (
-                 <div
-                   style={{
-                     position: "absolute",
-                     left: `${dragPreview.startPixel}px`,
-                     top: "-50px",
-                     background: "rgba(0, 0, 0, 0.9)",
-                     color: "white",
-                     padding: "6px 8px",
-                     borderRadius: "4px",
-                     fontSize: "10px",
-                     fontFamily: "monospace",
-                     whiteSpace: "nowrap",
-                     zIndex: 20,
-                     pointerEvents: "none",
-                     border: "1px solid #333"
-                   }}
-                 >
-                   <div style={{ fontWeight: "bold", marginBottom: "2px" }}>DRAG DEBUG</div>
-                   <div>Start: {dragPreview.startPixel.toFixed(1)}px</div>
-                   <div>End: {(dragPreview.startPixel + dragPreview.widthPixel).toFixed(1)}px</div>
-                   <div>Width: {dragPreview.widthPixel.toFixed(1)}px</div>
-                   <div>Duration: {dragPreview.duration}s</div>
-                 </div>
-               )}
              </div>
            </div>
          ))}
@@ -2047,17 +2165,55 @@ export default function Timeline({ onClipSelect, selectedClip }) {
           </div>
          </div>
          
-         {/* Timeline Content Border Overlay */}
-         <div style={{
-           position: "absolute",
-           left: "75px",
-           top: 0,
-           bottom: 0,
-           width: "2px",
-           background: "rgba(0,0,0,0.3)",
-           zIndex: 5,
-           pointerEvents: "none"
-         }} />
+       {/* Timeline Content Border Overlay */}
+       <div style={{
+         position: "absolute",
+         left: "75px",
+         top: 0,
+         bottom: 0,
+         width: "2px",
+         background: "rgba(0,0,0,0.3)",
+         zIndex: 5,
+         pointerEvents: "none"
+       }} />
+       
+       {/* Floating Drag Preview for Timeline Clips */}
+       {isDraggingClip && dragPreview && (
+         <div
+           style={{
+             position: "fixed",
+             left: `${dragPosition.x - 100}px`, // Center horizontally
+             top: `${dragPosition.y - 50}px`,   // Center vertically
+             zIndex: 1000,
+             pointerEvents: "none",
+             opacity: 0.8,
+             border: "2px solid #007bff",
+             borderRadius: "6px",
+             boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+             background: "white",
+             padding: "12px",
+             width: "200px",
+             transform: "scale(1.05)"
+           }}
+         >
+           <div style={{ 
+             fontSize: "12px", 
+             fontWeight: "600",
+             color: "#333",
+             textAlign: "center",
+             marginBottom: "8px"
+           }}>
+             {dragPreview.character}
+           </div>
+           <div style={{ 
+             fontSize: "10px", 
+             color: "#666",
+             textAlign: "center"
+           }}>
+             {dragPreview.filename}
+           </div>
+         </div>
+       )}
          
          {/* Right Edge Buffer Zone */}
          <div style={{

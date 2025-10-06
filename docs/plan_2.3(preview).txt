@@ -1,0 +1,204 @@
+# Preview Component Plan
+
+## Overview
+The Preview component handles timeline playback, video display, and time controls. It provides the main viewing interface for the timeline content with playback controls and synchronization.
+
+## ✅ COMPLETED FEATURES
+- Basic Preview component structure
+- Preview panel integration in main layout
+- Preview placeholder content
+
+## 🎯 MVP PREVIEW FEATURES (MINIMAL)
+
+### 1. **Timeline Playback**
+- **Play/Pause** button for timeline playback
+- **Sequential playback** of clips in timeline order
+- **Playhead synchronization** with timeline position
+- **Automatic clip switching** when playhead reaches clip boundaries
+
+### 2. **Video Display**
+- **Full-screen video player** for current clip
+- **Clip thumbnail display** when no clip is playing
+- **Video controls** (play, pause, seek, volume)
+- **Responsive video sizing** to fit preview area
+
+### 3. **Time Controls**
+- **Current time display** (MM:SS format)
+- **Timeline duration** display
+- **Playback speed** controls (0.5x, 1x, 2x)
+- **Frame-accurate seeking** (60fps precision)
+
+### 4. **Timeline Synchronization**
+- **Playhead position sync** with timeline
+- **Clip selection sync** - preview shows selected clip
+- **Timeline updates** when clips are added/removed
+- **Real-time position updates** during playback
+
+### 5. **Playback Controls**
+- **Play/Pause** toggle button
+- **Stop** button (return to timeline start)
+- **Previous/Next clip** navigation
+- **Seek to specific time** input
+- **Loop playback** toggle
+
+## 🔧 TECHNICAL IMPLEMENTATION
+
+### **Component Architecture**
+```
+Preview.js
+├── VideoPlayer (main video display)
+├── PlaybackControls (play/pause/seek controls)
+├── TimeDisplay (current time, duration)
+├── SpeedControls (playback speed)
+└── TimelineSync (synchronization with timeline)
+```
+
+### **MVP Data Structure**
+```javascript
+const previewData = {
+  currentClip: {
+    id: "VI.S1.E1.C14",
+    character: "Vi",
+    filename: "VI.S1.E1.C14 Vi Gang Break Into Jayce's Lab.mp4",
+    startTime: 0,
+    duration: 5.2,
+    currentTime: 2.1
+  },
+  playback: {
+    playing: false,
+    speed: 1.0,
+    loop: false,
+    volume: 1.0
+  },
+  timeline: {
+    playhead: 0,
+    totalDuration: 15.6,
+    clips: [...]
+  }
+};
+```
+
+### **MVP Key Functions**
+- `playTimeline()` - start timeline playback
+- `pauseTimeline()` - pause timeline playback
+- `stopTimeline()` - stop and reset to beginning
+- `seekToTime(time)` - jump to specific time
+- `setPlaybackSpeed(speed)` - change playback speed
+- `syncWithTimeline(timelineData)` - sync with timeline state
+- `loadClip(clip)` - load specific clip for preview
+
+## 🎨 UI/UX DESIGN
+
+### **Preview Layout**
+- **Video Area**: Large video player (80% of space)
+- **Controls Bar**: Playback controls below video
+- **Time Display**: Current time and duration
+- **Speed Controls**: Playback speed adjustment
+- **Timeline Sync**: Visual connection to timeline
+
+### **Visual Design**
+- **Video player**: Clean, modern video interface
+- **Control buttons**: Intuitive play/pause/seek buttons
+- **Time display**: Clear, readable time format
+- **Progress bar**: Visual playback progress
+- **Speed indicators**: Clear speed selection
+
+### **Responsive Behavior**
+- **Video scaling**: Maintain aspect ratio
+- **Control sizing**: Touch-friendly controls
+- **Layout adaptation**: Responsive to window size
+- **Performance**: Smooth video playback
+
+## 🔮 FUTURE ENHANCEMENTS
+
+### **Advanced Playback Features**
+- **Frame-by-frame** navigation
+- **Slow motion** playback (0.25x, 0.5x)
+- **Fast forward** (2x, 4x, 8x)
+- **Audio waveform** display
+- **Video effects** preview
+
+### **Advanced Controls**
+- **Keyboard shortcuts** for playback
+- **Mouse wheel** seeking
+- **Touch gestures** for mobile
+- **Custom hotkeys** configuration
+- **Playback presets** (slow, normal, fast)
+
+### **Timeline Integration**
+- **Multi-track** playback
+- **Audio sync** with video
+- **Transition effects** preview
+- **Export preview** functionality
+- **Real-time editing** feedback
+
+## 📋 MVP IMPLEMENTATION PHASES
+
+### **Phase 1: Basic Playback (Week 1)**
+- Video player integration
+- Play/pause functionality
+- Timeline synchronization
+- Basic time display
+
+### **Phase 2: Advanced Controls (Week 2)**
+- Seek controls
+- Speed adjustment
+- Stop functionality
+- Clip navigation
+
+### **Phase 3: Polish & Testing (Week 3)**
+- UI/UX refinements
+- Performance optimization
+- Error handling
+- User testing
+
+## 🎯 SUCCESS CRITERIA
+
+### **MVP Functional Requirements**
+- ✅ Play timeline clips in sequence
+- ✅ Pause and resume playback
+- ✅ Seek to specific times
+- ✅ Display current clip video
+- ✅ Sync with timeline playhead
+- ✅ Show playback controls
+
+### **MVP Performance Requirements**
+- Smooth video playback (60fps)
+- Responsive controls
+- Fast seeking
+- Low memory usage
+- Quick clip switching
+
+### **MVP User Experience**
+- Intuitive playback controls
+- Clear time display
+- Responsive interface
+- Smooth synchronization
+- Professional video player feel
+
+## 🔗 INTEGRATION POINTS
+
+### **With Timeline Component**
+- Playhead position synchronization
+- Clip selection updates
+- Timeline state changes
+- Playback control integration
+
+### **With Media Library**
+- Video file loading
+- Clip metadata access
+- Thumbnail generation
+- File path resolution
+
+### **With Backend**
+- Video streaming
+- File serving
+- Metadata retrieval
+- Export preparation
+
+---
+
+**Status**: Ready for implementation
+**Priority**: High (Core MVP feature)
+**Estimated Time**: 2-3 weeks
+**Dependencies**: Timeline component, Media Library
