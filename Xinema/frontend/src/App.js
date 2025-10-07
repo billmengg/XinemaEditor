@@ -123,6 +123,131 @@ function EditorLayout() {
   const [clipPreviewWidth, setClipPreviewWidth] = React.useState(400);
   const [isResizing, setIsResizing] = React.useState(null);
   const [selectedClip, setSelectedClip] = React.useState(null);
+  const [isPlaying, setIsPlaying] = React.useState(false);
+  const [prerenderVideos, setPrerenderVideos] = React.useState([]);
+  const [currentPreviewVideo, setCurrentPreviewVideo] = React.useState(null);
+  const [currentFrame, setCurrentFrame] = React.useState(null);
+  const [frameLoadingState, setFrameLoadingState] = React.useState('idle'); // 'idle', 'loading', 'loaded', 'error'
+
+  // Handle prerender video playback
+  const handlePrerenderPlayback = (prerenderData) => {
+    if (prerenderData && prerenderData.outputPath) {
+      setCurrentPreviewVideo(prerenderData.outputPath);
+    }
+  };
+
+  // Sync preview video with timeline playback
+  React.useEffect(() => {
+    const videoElement = document.querySelector('#timeline-preview-video');
+    if (videoElement && currentPreviewVideo) {
+      if (isPlaying) {
+        videoElement.play();
+      } else {
+        videoElement.pause();
+      }
+    }
+  }, [isPlaying, currentPreviewVideo]);
+
+  // Handle video loading and error states
+  const handleVideoLoad = () => {
+    console.log('Preview video loaded successfully');
+  };
+
+  const handleVideoError = (e) => {
+    console.error('Preview video failed to load:', e);
+    setCurrentPreviewVideo(null); // Clear failed video
+  };
+
+  // Test backend connection on mount
+  React.useEffect(() => {
+    const testBackendConnection = async () => {
+      try {
+        // Test basic connection
+        const response = await fetch('http://localhost:5000/api/test');
+        if (response.ok) {
+          const data = await response.json();
+          console.log('✅ Backend connection successful:', data);
+        } else {
+          console.error('❌ Backend connection failed:', response.status);
+        }
+        
+        // Test prerender endpoint
+        const prerenderTest = await fetch('http://localhost:5000/api/prerender-test');
+        if (prerenderTest.ok) {
+          const prerenderData = await prerenderTest.json();
+          console.log('✅ Prerender endpoint accessible:', prerenderData);
+        } else {
+          console.error('❌ Prerender endpoint not accessible:', prerenderTest.status);
+        }
+      } catch (error) {
+        console.error('❌ Backend connection error:', error);
+      }
+    };
+    
+    testBackendConnection();
+  }, []);
+
+  // Listen for prerender completion
+  React.useEffect(() => {
+    const handlePrerenderComplete = (event) => {
+      const { prerenderId, outputPath, frameCount } = event.detail;
+      setPrerenderVideos(prev => [...prev, { prerenderId, outputPath, frameCount }]);
+      handlePrerenderPlayback({ outputPath, frameCount });
+    };
+
+    const handleShowFrame = (event) => {
+      const { character, filename, frameNumber, timelinePosition, clipStartFrames } = event.detail;
+      console.log('📥 Received showFrame event:', { 
+        character, 
+        filename, 
+        frameNumber, 
+        timelinePosition, 
+        clipStartFrames 
+      });
+      
+      if (character && filename && frameNumber !== null) {
+        console.log('✅ Setting current frame with valid data');
+        console.log('🔄 Frame loading started:', {
+          character,
+          filename,
+          frameNumber,
+          url: `http://localhost:5000/api/frame-direct/${character}/${filename}/${frameNumber}`
+        });
+        
+        // Test if the frame URL is accessible
+        const frameUrl = `http://localhost:5000/api/frame-direct/${character}/${filename}/${Math.floor(frameNumber)}`;
+        fetch(frameUrl)
+          .then(response => {
+            console.log('🔍 Frame URL test response:', {
+              status: response.status,
+              statusText: response.statusText,
+              headers: Object.fromEntries(response.headers.entries()),
+              url: response.url
+            });
+            if (!response.ok) {
+              console.error('❌ Frame URL test failed:', response.status, response.statusText);
+            }
+          })
+          .catch(error => {
+            console.error('❌ Frame URL test error:', error);
+          });
+        
+        setCurrentFrame({ character, filename, frameNumber, timelinePosition, clipStartFrames });
+        setFrameLoadingState('loading');
+      } else {
+        console.log('⚠️ Setting current frame with null/invalid data');
+        setCurrentFrame({ character, filename, frameNumber, timelinePosition, clipStartFrames });
+        setFrameLoadingState('idle');
+      }
+    };
+
+    window.addEventListener('prerenderComplete', handlePrerenderComplete);
+    window.addEventListener('showFrame', handleShowFrame);
+    return () => {
+      window.removeEventListener('prerenderComplete', handlePrerenderComplete);
+      window.removeEventListener('showFrame', handleShowFrame);
+    };
+  }, []);
 
   const handleMouseDown = (type) => (e) => {
     setIsResizing(type);
@@ -246,19 +371,128 @@ function EditorLayout() {
                 }
               }}
             >
+              {/* 16:9 Timeline Preview Screen */}
               <div style={{
-                height: '100%',
-                background: '#f8f9fa',
-                border: '2px dashed #ddd',
-                borderRadius: '4px',
+                width: '100%',
+                aspectRatio: '16/9',
+                background: '#000',
+                borderRadius: '6px',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                color: '#666',
-                fontSize: '14px',
-                transition: 'all 0.2s'
+                color: '#fff',
+                fontSize: '18px',
+                fontWeight: '600',
+                border: '2px solid #333',
+                position: 'relative',
+                overflow: 'hidden',
+                marginBottom: '16px'
               }}>
-                Drop clips here to add to timeline
+                {/* Frame preview or placeholder */}
+                {currentFrame && currentFrame.character ? (
+                  <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+                    <img
+                      src={`http://localhost:5000/api/frame-direct/${currentFrame.character}/${currentFrame.filename}/${Math.floor(currentFrame.frameNumber)}`}
+                      style={{
+                        width: '100%',
+                        height: '100%',
+                        objectFit: 'cover'
+                      }}
+                      alt={`Frame from ${currentFrame.character} - ${currentFrame.filename}`}
+                      onLoad={(e) => {
+                        console.log('✅ Frame loaded successfully:', {
+                          src: e.target.src,
+                          character: currentFrame.character,
+                          filename: currentFrame.filename,
+                          frameNumber: currentFrame.frameNumber,
+                          naturalWidth: e.target.naturalWidth,
+                          naturalHeight: e.target.naturalHeight,
+                          complete: e.target.complete,
+                          readyState: e.target.readyState
+                        });
+                        setFrameLoadingState('loaded');
+                      }}
+                      onError={(e) => {
+                        console.error('❌ Frame failed to load:', {
+                          src: e.target.src,
+                          character: currentFrame.character,
+                          filename: currentFrame.filename,
+                          frameNumber: currentFrame.frameNumber,
+                          error: e,
+                          networkState: e.target.networkState
+                        });
+                        setFrameLoadingState('error');
+                      }}
+                    />
+                    {/* Debug overlay */}
+                    <div style={{
+                      position: 'absolute',
+                      bottom: '8px',
+                      left: '8px',
+                      background: 'rgba(0, 0, 0, 0.7)',
+                      color: 'white',
+                      padding: '4px 8px',
+                      borderRadius: '4px',
+                      fontSize: '12px',
+                      fontFamily: 'monospace'
+                    }}>
+                      {currentFrame.character}/{currentFrame.filename} - Frame {Math.floor(currentFrame.frameNumber)}
+                      <br />
+                      Status: {frameLoadingState}
+                      {frameLoadingState === 'loading' && ' 🔄'}
+                      {frameLoadingState === 'loaded' && ' ✅'}
+                      {frameLoadingState === 'error' && ' ❌'}
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{
+                    color: '#666',
+                    textAlign: 'center'
+                  }}>
+                    {currentFrame ? 'No clip at this position' : 'Timeline Preview'}
+                  </div>
+                )}
+              </div>
+              
+              {/* Playback Control */}
+              <div style={{
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center'
+              }}>
+                {/* Play/Stop Toggle Button */}
+                <button
+                  onClick={() => setIsPlaying(!isPlaying)}
+                  style={{
+                    width: '50px',
+                    height: '50px',
+                    borderRadius: '6px',
+                    border: '2px solid #333',
+                    background: '#f8f9fa',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                    fontSize: '18px',
+                    color: '#333',
+                    transition: 'all 0.2s',
+                    padding: 0,
+                    margin: 0,
+                    lineHeight: 1,
+                    textAlign: 'center'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.target.style.background = '#e9ecef';
+                    e.target.style.borderColor = '#007bff';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.target.style.background = '#f8f9fa';
+                    e.target.style.borderColor = '#333';
+                  }}
+                  title={isPlaying ? "Stop" : "Play"}
+                >
+                  {isPlaying ? '⏹' : '▶'}
+                </button>
               </div>
             </div>
           </div>
@@ -325,7 +559,16 @@ function EditorLayout() {
             <h3 style={{ margin: '0 0 16px 0', fontSize: '16px', fontWeight: '600' }}>
               Timeline
             </h3>
-            <Timeline onClipSelect={setSelectedClip} selectedClip={selectedClip} />
+            <Timeline 
+              onClipSelect={setSelectedClip} 
+              selectedClip={selectedClip}
+              isPlaying={isPlaying}
+              onTimelineClick={() => {
+                if (isPlaying) {
+                  setIsPlaying(false);
+                }
+              }}
+            />
           </div>
         </div>
       </div>

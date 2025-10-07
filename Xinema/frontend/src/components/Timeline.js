@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { logOnce } from '../utils/consoleDeduplication';
 
-export default function Timeline({ onClipSelect, selectedClip }) {
+export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTimelineClick }) {
   const [activeTool, setActiveTool] = useState('cursor');
   const [videoTracks, setVideoTracks] = useState([1, 2, 3]);
   const [audioTracks, setAudioTracks] = useState([1]);
@@ -16,6 +16,9 @@ export default function Timeline({ onClipSelect, selectedClip }) {
   const [isDraggingClip, setIsDraggingClip] = useState(false); // Track if we're dragging a clip
   const [draggedClipActualPosition, setDraggedClipActualPosition] = useState(null); // Actual mouse position of dragged clip
   const [dragPosition, setDragPosition] = useState({ x: 0, y: 0 }); // Mouse position during drag
+  const [playheadAnimationFrame, setPlayheadAnimationFrame] = useState(null); // Animation frame reference
+  const [smoothPlayheadPosition, setSmoothPlayheadPosition] = useState(0); // Smooth visual position
+  const [showDebugPanel, setShowDebugPanel] = useState(false); // Debug panel visibility
   // No snapshot needed - use live magnetic points data
   const magneticPointsRef = useRef(new Map()); // Ref to track current magnetic points for event handlers
   const lastLogRef = useRef({}); // Track last logged messages to prevent duplicates
@@ -80,7 +83,8 @@ export default function Timeline({ onClipSelect, selectedClip }) {
     { id: 'cursor', icon: '↖', label: 'Cursor', active: true },
     { id: 'cut', icon: '✂', label: 'Cut', active: false },
     { id: 'zoom', icon: '🔍', label: 'Zoom', active: false },
-    { id: 'magnetic', icon: '🧲', label: 'Magnetic Debug', active: showMagneticDebug, onClick: () => setShowMagneticDebug(!showMagneticDebug) }
+    { id: 'magnetic', icon: '🧲', label: 'Magnetic Debug', active: showMagneticDebug, onClick: () => setShowMagneticDebug(!showMagneticDebug) },
+    { id: 'debug', icon: '🐛', label: 'Play Debug', active: showDebugPanel, onClick: () => setShowDebugPanel(!showDebugPanel) }
   ];
 
   const addVideoTrack = () => {
@@ -186,6 +190,7 @@ export default function Timeline({ onClipSelect, selectedClip }) {
       // Convert pixel position to frame position
       const framePosition = pixelsToFrames(relativeX);
       setPlayheadPosition(framePosition);
+      setSmoothPlayheadPosition(framePosition); // Update smooth position too
       // Start dragging mode so the playhead follows the mouse
       setIsDraggingPlayhead(true);
     }
@@ -195,6 +200,11 @@ export default function Timeline({ onClipSelect, selectedClip }) {
     // Only prevent default for left clicks, allow right clicks for context menu
     if (e.button === 0) { // Left mouse button
       e.preventDefault(); // Prevent default behavior, don't start dragging on click
+      
+      // If currently playing, stop when clicking timeline
+      if (isPlaying && onTimelineClick) {
+        onTimelineClick();
+      }
     }
   };
 
@@ -292,14 +302,17 @@ export default function Timeline({ onClipSelect, selectedClip }) {
       if (relativeX < 0) {
         // Mouse is to the left of the timeline - set playhead to left edge
         setPlayheadPosition(0);
+        setSmoothPlayheadPosition(0);
       } else if (relativeX > actualMaxPosition) {
         // Mouse is to the right of the timeline - set playhead to maximum time (10:00)
         const maxFramePosition = pixelsToFrames(actualMaxPosition);
         setPlayheadPosition(maxFramePosition);
+        setSmoothPlayheadPosition(maxFramePosition);
       } else {
         // Mouse is within bounds - follow the mouse (convert to frames)
         const framePosition = pixelsToFrames(relativeX);
         setPlayheadPosition(framePosition);
+        setSmoothPlayheadPosition(framePosition); // Update smooth position too
       }
     }
   };
@@ -953,10 +966,10 @@ export default function Timeline({ onClipSelect, selectedClip }) {
     }
   };
 
-  // Format time directly from frames (60fps)
+  // Format time directly from frames (60fps) - display minutes:seconds.frames
   const formatTimeFromFrames = (frames) => {
     const totalSeconds = Math.floor(frames / FRAMES_PER_SECOND);
-    const remainingFrames = frames % FRAMES_PER_SECOND;
+    const remainingFrames = Math.floor(frames) % FRAMES_PER_SECOND;
     const hours = Math.floor(totalSeconds / 3600);
     const mins = Math.floor((totalSeconds % 3600) / 60);
     const secs = totalSeconds % 60;
@@ -973,6 +986,302 @@ export default function Timeline({ onClipSelect, selectedClip }) {
     updateMagneticPointsFromClips(timelineClips);
   }, [timelineClips]); // This will run on mount when timelineClips is []
 
+  // Prerender logic - calculate areas with clips for yellow lines (in frames)
+  const calculatePrerenderAreas = () => {
+    if (timelineClips.length === 0) return [];
+    
+    // Convert clips to frame ranges
+    const frameRanges = timelineClips.map(clip => {
+      return {
+        startFrames: clip.startFrames,
+        endFrames: clip.endFrames,
+        track: clip.track
+      };
+    });
+    
+    // Sort by start frames
+    frameRanges.sort((a, b) => a.startFrames - b.startFrames);
+    
+    // Merge overlapping ranges
+    const mergedRanges = [];
+    let currentRange = null;
+    
+    frameRanges.forEach(range => {
+      if (!currentRange) {
+        currentRange = { ...range };
+      } else if (range.startFrames <= currentRange.endFrames) {
+        // Overlapping or adjacent ranges - merge them
+        currentRange.endFrames = Math.max(currentRange.endFrames, range.endFrames);
+      } else {
+        // Non-overlapping range - save current and start new
+        mergedRanges.push(currentRange);
+        currentRange = { ...range };
+      }
+    });
+    
+    if (currentRange) {
+      mergedRanges.push(currentRange);
+    }
+    
+    return mergedRanges;
+  };
+
+  const prerenderAreas = calculatePrerenderAreas();
+
+  // Function to get prerender frame ranges for external use
+  const getPrerenderFrameRanges = () => {
+    return prerenderAreas.map(area => ({
+      startFrame: area.startFrames,
+      endFrame: area.endFrames,
+      durationFrames: area.endFrames - area.startFrames
+    }));
+  };
+
+  // Prerender system - analyze clips and generate frame composites
+  const generatePrerenderFrames = async (prerenderArea) => {
+    const { startFrames, endFrames } = prerenderArea;
+    const durationFrames = endFrames - startFrames;
+    
+    // Get all clips that overlap with this prerender area
+    const overlappingClips = timelineClips.filter(clip => {
+      return !(clip.endFrames <= startFrames || clip.startFrames >= endFrames);
+    });
+    
+    if (overlappingClips.length === 0) {
+      return null; // No clips to prerender
+    }
+    
+    // Sort clips by track (highest track number first for compositing)
+    const sortedClips = overlappingClips.sort((a, b) => b.track - a.track);
+    
+    // Calculate frame ranges for each clip within the prerender area
+    const clipFrameRanges = sortedClips.map(clip => {
+      const clipStartInArea = Math.max(clip.startFrames, startFrames);
+      const clipEndInArea = Math.min(clip.endFrames, endFrames);
+      const clipStartOffset = clipStartInArea - startFrames;
+      const clipEndOffset = clipEndInArea - startFrames;
+      
+      return {
+        clip,
+        startFrame: clipStartInArea,
+        endFrame: clipEndInArea,
+        startOffset: clipStartOffset,
+        endOffset: clipEndOffset,
+        duration: clipEndOffset - clipStartOffset
+      };
+    });
+    
+    // Generate frame data for backend processing
+    const prerenderData = {
+      startFrame: startFrames,
+      endFrame: endFrames,
+      durationFrames: durationFrames,
+      clips: clipFrameRanges.map(range => ({
+        character: range.clip.character,
+        filename: range.clip.filename,
+        startFrame: range.startFrame,
+        endFrame: range.endFrame,
+        startOffset: range.startOffset,
+        endOffset: range.endOffset,
+        track: range.clip.track,
+        duration: range.duration
+      }))
+    };
+    
+    return prerenderData;
+  };
+
+  // Process all prerender areas and generate frames
+  const processPrerenderAreas = async () => {
+    if (prerenderAreas.length === 0) return;
+    
+    console.log('Processing prerender areas:', prerenderAreas);
+    
+    for (const area of prerenderAreas) {
+      const prerenderData = await generatePrerenderFrames(area);
+      if (prerenderData) {
+        console.log('Prerender data for area:', prerenderData);
+        
+        // Send to backend for frame extraction and compositing
+        try {
+          const response = await fetch('http://localhost:5000/api/prerender', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(prerenderData)
+          });
+          
+          if (response.ok) {
+            const result = await response.json();
+            console.log('Prerender result:', result);
+            
+            // Dispatch prerender completion event
+            const event = new CustomEvent('prerenderComplete', {
+              detail: {
+                prerenderId: result.prerenderId,
+                outputPath: result.outputPath,
+                frameCount: result.frameCount
+              }
+            });
+            window.dispatchEvent(event);
+          } else {
+            console.error('Prerender failed:', response.statusText);
+          }
+        } catch (error) {
+          console.error('Prerender error:', error);
+        }
+      }
+    }
+  };
+
+  // 60-fps playhead animation system with frame-accurate backend positioning
+  const startPlayheadAnimation = () => {
+    if (playheadAnimationFrame) return; // Already animating
+    
+    const startTime = Date.now();
+    const startFrame = playheadPosition;
+    const targetFPS = 60; // 60 frames per second for smooth visual movement
+    const frameInterval = 1000 / targetFPS; // ~16.67ms per frame
+    
+    const animate = () => {
+      const currentTime = Date.now();
+      const elapsed = currentTime - startTime;
+      
+      // Calculate frame-accurate position (backend priority)
+      const framesElapsed = Math.floor(elapsed / frameInterval);
+      const newFramePosition = startFrame + framesElapsed;
+      
+      // Check if we've reached the end of timeline (10 minutes = 36,000 frames)
+      if (newFramePosition >= TIMELINE_TOTAL_FRAMES) {
+        setPlayheadPosition(TIMELINE_TOTAL_FRAMES);
+        setSmoothPlayheadPosition(TIMELINE_TOTAL_FRAMES);
+        stopPlayheadAnimation();
+        return;
+      }
+      
+      // Update frame-based position (discrete - backend priority)
+      setPlayheadPosition(newFramePosition);
+      
+      // Calculate smooth visual position for 60fps movement
+      const smoothFrames = startFrame + (elapsed / frameInterval);
+      setSmoothPlayheadPosition(Math.min(smoothFrames, TIMELINE_TOTAL_FRAMES));
+      
+      // Continue animation at 60fps
+      const frameId = requestAnimationFrame(animate);
+      setPlayheadAnimationFrame(frameId);
+    };
+    
+    animate();
+  };
+
+  const stopPlayheadAnimation = () => {
+    if (playheadAnimationFrame) {
+      cancelAnimationFrame(playheadAnimationFrame);
+      setPlayheadAnimationFrame(null);
+    }
+  };
+
+  // Start/stop animation based on isPlaying state
+  useEffect(() => {
+    if (isPlaying) {
+      startPlayheadAnimation();
+    } else {
+      stopPlayheadAnimation();
+    }
+    
+    return () => {
+      stopPlayheadAnimation();
+    };
+  }, [isPlaying]);
+
+  // Extract frame when playhead moves
+  useEffect(() => {
+    extractSingleFrame(smoothPlayheadPosition);
+  }, [smoothPlayheadPosition]);
+
+  // Check if playhead is in a prerender area and trigger prerendering if needed
+  const checkAndTriggerPrerender = (framePosition) => {
+    const isInPrerenderArea = prerenderAreas.some(area => 
+      framePosition >= area.startFrames && framePosition <= area.endFrames
+    );
+    
+    if (isInPrerenderArea && prerenderAreas.length > 0) {
+      console.log('Playhead is in prerender area, triggering prerender...');
+      processPrerenderAreas();
+    }
+  };
+
+  // Extract single frame for immediate preview
+  const extractSingleFrame = async (framePosition) => {
+    // Only process if there are clips on the timeline
+    if (timelineClips.length === 0) {
+      console.log('No clips on timeline, skipping frame extraction');
+      return;
+    }
+    
+    // Find which clip is active at this frame position
+    const activeClip = timelineClips.find(clip => 
+      framePosition >= clip.startFrames && framePosition <= clip.endFrames
+    );
+    
+    if (activeClip) {
+      // Calculate clip frame: playhead position - clip start position
+      const clipFrame = Math.floor(framePosition - activeClip.startFrames);
+      
+      console.log('Extracting frame from clip:', { 
+        timelinePosition: framePosition,
+        clipStartFrames: activeClip.startFrames,
+        clipEndFrames: activeClip.endFrames,
+        clipFrame: clipFrame,
+        character: activeClip.character, 
+        filename: activeClip.filename
+      });
+      
+      // Dispatch event to show the frame in preview (using direct streaming)
+      console.log('📤 Dispatching showFrame event:', {
+        character: activeClip.character,
+        filename: activeClip.filename,
+        frameNumber: clipFrame,
+        timelinePosition: framePosition,
+        clipStartFrames: activeClip.startFrames,
+        url: `http://localhost:5000/api/frame-direct/${activeClip.character}/${activeClip.filename}/${clipFrame}`
+      });
+      
+      const event = new CustomEvent('showFrame', {
+        detail: {
+          character: activeClip.character,
+          filename: activeClip.filename,
+          frameNumber: clipFrame,
+          timelinePosition: framePosition,
+          clipStartFrames: activeClip.startFrames
+        }
+      });
+      window.dispatchEvent(event);
+    } else {
+      console.log('No active clip at frame position:', framePosition);
+      // Dispatch event to show black frame or placeholder
+      const event = new CustomEvent('showFrame', {
+        detail: {
+          character: null,
+          filename: null,
+          frameNumber: null,
+          timelinePosition: framePosition
+        }
+      });
+      window.dispatchEvent(event);
+    }
+  };
+
+  // Debug: Log prerender frame ranges when they change
+  useEffect(() => {
+    if (prerenderAreas.length > 0) {
+      console.log('Prerender frame ranges:', getPrerenderFrameRanges());
+      // Process prerender areas when clips change
+      processPrerenderAreas();
+    }
+  }, [prerenderAreas]);
+
   // Keep magneticPointsRef in sync with magneticPoints state
   useEffect(() => {
     magneticPointsRef.current = magneticPoints;
@@ -981,15 +1290,16 @@ export default function Timeline({ onClipSelect, selectedClip }) {
   // Initialize playhead magnetic point on mount
   useEffect(() => {
     updatePlayheadMagneticPoint(playheadPosition, true); // Log initial creation
+    setSmoothPlayheadPosition(playheadPosition); // Initialize smooth position
   }, []); // Run once on mount
 
   // Update playhead magnetic point when playhead moves (but not during clip dragging)
   useEffect(() => {
     // Only update magnetic points if we're not dragging clips
     if (!isDraggingClip) {
-      updatePlayheadMagneticPoint(playheadPosition, false); // Don't log during drag
+      updatePlayheadMagneticPoint(smoothPlayheadPosition, false); // Don't log during drag
     }
-  }, [playheadPosition, isDraggingClip]);
+  }, [smoothPlayheadPosition, isDraggingClip]);
 
   // Update dragged clip magnetic points when drag preview changes
   // Note: This is now called directly from the drag handlers to avoid infinite loops
@@ -1753,6 +2063,8 @@ export default function Timeline({ onClipSelect, selectedClip }) {
             onClick={() => {
               if (tool.id === 'magnetic') {
                 setShowMagneticDebug(!showMagneticDebug);
+              } else if (tool.id === 'debug') {
+                setShowDebugPanel(!showDebugPanel);
               } else if (tool.active) {
                 setActiveTool(tool.id);
               }
@@ -1780,23 +2092,106 @@ export default function Timeline({ onClipSelect, selectedClip }) {
         ))}
       </div>
 
-      {/* Timeline Content */}
-      <div 
-        className="timeline-content"
-        style={{
-          flex: 1,
-          display: "flex",
-          flexDirection: "column",
-          background: "#f8f9fa",
-          overflow: "auto",
-          position: "relative",
-          userSelect: "none" // Prevent text selection during dragging
-        }}
-        onMouseDown={handleTimelineMouseDown}
-        onMouseUp={handleMouseUp}
-        onDragOver={handleTimelineDragOver}
-        onDrop={handleTimelineDrop}
-       >
+         {/* Debug Panel */}
+         {showDebugPanel && (
+           <div style={{
+             position: "absolute",
+             top: "10px",
+             right: "10px",
+             background: "rgba(0, 0, 0, 0.9)",
+             color: "#fff",
+             padding: "12px",
+             borderRadius: "6px",
+             fontSize: "12px",
+             fontFamily: "monospace",
+             zIndex: 1000,
+             minWidth: "300px",
+             border: "1px solid #333"
+           }}>
+             <div style={{ fontWeight: "bold", marginBottom: "8px", color: "#00ff00" }}>
+               🐛 Play Debug Panel
+             </div>
+             
+             {/* Playhead Position */}
+             <div style={{ marginBottom: "6px" }}>
+               <div style={{ color: "#ffff00" }}>Playhead Position:</div>
+               <div>Frames: {Math.floor(smoothPlayheadPosition)}</div>
+               <div>Time: {formatTimeFromFrames(smoothPlayheadPosition)}</div>
+             </div>
+             
+             {/* Active Clip Info */}
+             {(() => {
+               const activeClip = timelineClips.find(clip => 
+                 smoothPlayheadPosition >= clip.startFrames && smoothPlayheadPosition <= clip.endFrames
+               );
+               
+               if (activeClip) {
+                 const clipFrame = Math.floor(smoothPlayheadPosition - activeClip.startFrames);
+                 return (
+                   <div style={{ marginBottom: "6px" }}>
+                     <div style={{ color: "#00ffff" }}>Active Clip:</div>
+                     <div>Character: {activeClip.character}</div>
+                     <div>File: {activeClip.filename}</div>
+                     <div>Track: {activeClip.track}</div>
+                     <div style={{ color: "#ffff00" }}>Clip Start:</div>
+                     <div>Frames: {activeClip.startFrames}</div>
+                     <div>Time: {formatTimeFromFrames(activeClip.startFrames)}</div>
+                     <div style={{ color: "#ff8800" }}>Clip Frame:</div>
+                     <div>Frame: {clipFrame}</div>
+                     <div>Time: {formatTimeFromFrames(clipFrame)}</div>
+                   </div>
+                 );
+               } else {
+                 return (
+                   <div style={{ marginBottom: "6px" }}>
+                     <div style={{ color: "#ff0000" }}>No Active Clip</div>
+                   </div>
+                 );
+               }
+             })()}
+             
+             {/* Timeline Clips Count */}
+             <div style={{ marginBottom: "6px" }}>
+               <div style={{ color: "#888" }}>Timeline Clips: {timelineClips.length}</div>
+             </div>
+             
+             {/* Close Button */}
+             <button
+               onClick={() => setShowDebugPanel(false)}
+               style={{
+                 position: "absolute",
+                 top: "8px",
+                 right: "8px",
+                 background: "transparent",
+                 border: "none",
+                 color: "#fff",
+                 cursor: "pointer",
+                 fontSize: "16px"
+               }}
+             >
+               ×
+             </button>
+           </div>
+         )}
+
+         {/* Timeline Content */}
+         <div 
+           className="timeline-content"
+           style={{
+             flex: 1,
+             display: "flex",
+             flexDirection: "column",
+             background: "#f8f9fa",
+             overflow: "auto",
+             position: "relative",
+             userSelect: "none" // Prevent text selection during dragging
+           }}
+           onMouseDown={handleTimelineMouseDown}
+           onMouseUp={handleMouseUp}
+           onClick={handleTimelineClick}
+           onDragOver={handleTimelineDragOver}
+           onDrop={handleTimelineDrop}
+          >
          {/* Timeline Top Bar - Time indicator and controls */}
          <div style={{
            height: "30px",
@@ -1819,7 +2214,7 @@ export default function Timeline({ onClipSelect, selectedClip }) {
              top: "50%",
              transform: "translateY(-50%)"
            }}>
-             {formatTimeFromFrames(playheadPosition)}
+             {formatTimeFromFrames(smoothPlayheadPosition)}
            </div>
            
            
@@ -1854,6 +2249,44 @@ export default function Timeline({ onClipSelect, selectedClip }) {
            position: "relative",
            overflow: "hidden"
          }}>
+          {/* Prerender Areas - Yellow horizontal lines for areas with clips */}
+          {prerenderAreas.map((area, index) => {
+            const timelineElement = document.querySelector('.timeline-content');
+            const trackContentStart = 76; // Track title width
+            const bufferZone = 38; // Buffer zone width
+            const timelineRect = timelineElement?.getBoundingClientRect();
+            const actualMaxPosition = timelineRect ? timelineRect.width - trackContentStart - bufferZone : getActualTimelineWidth();
+            
+            // Convert frame positions to pixel positions
+            const startPosition = framesToPixels(area.startFrames);
+            const endPosition = framesToPixels(area.endFrames);
+            const width = endPosition - startPosition;
+            
+            // Convert frames to time for tooltip display
+            const startTime = framesToTime(area.startFrames);
+            const endTime = framesToTime(area.endFrames);
+            const startMinutes = startTime / 60;
+            const endMinutes = endTime / 60;
+            
+            return (
+              <div
+                key={`prerender-${index}`}
+                style={{
+                  position: "absolute",
+                  left: `${startPosition}px`,
+                  top: "25px", // Position just above the bottom border
+                  height: "2px",
+                  width: `${width}px`,
+                  background: "#ffd700", // Yellow color
+                  zIndex: 10,
+                  borderRadius: "1px",
+                  boxShadow: "0 1px 2px rgba(255, 215, 0, 0.3)"
+                }}
+                title={`Prerender frames: ${area.startFrames}-${area.endFrames} (${startMinutes.toFixed(1)}m - ${endMinutes.toFixed(1)}m)`}
+              />
+            );
+          })}
+          
           {/* Time Markers */}
           {Array.from({ length: 11 }, (_, i) => {
             const time = i; // 0, 1, 2, ..., 10 minutes
@@ -1900,7 +2333,7 @@ export default function Timeline({ onClipSelect, selectedClip }) {
            className="playhead"
            style={{
              position: "absolute",
-             left: `${76 + framesToPixels(playheadPosition)}px`, // Convert frame position to pixels
+             left: `${76 + framesToPixels(smoothPlayheadPosition)}px`, // Use smooth position for visual display
              top: "60px", // Start below top bar (30px) and time ruler (30px)
              bottom: 0,
              width: "2px",
@@ -2177,43 +2610,6 @@ export default function Timeline({ onClipSelect, selectedClip }) {
          pointerEvents: "none"
        }} />
        
-       {/* Floating Drag Preview for Timeline Clips */}
-       {isDraggingClip && dragPreview && (
-         <div
-           style={{
-             position: "fixed",
-             left: `${dragPosition.x - 100}px`, // Center horizontally
-             top: `${dragPosition.y - 50}px`,   // Center vertically
-             zIndex: 1000,
-             pointerEvents: "none",
-             opacity: 0.8,
-             border: "2px solid #007bff",
-             borderRadius: "6px",
-             boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
-             background: "white",
-             padding: "12px",
-             width: "200px",
-             transform: "scale(1.05)"
-           }}
-         >
-           <div style={{ 
-             fontSize: "12px", 
-             fontWeight: "600",
-             color: "#333",
-             textAlign: "center",
-             marginBottom: "8px"
-           }}>
-             {dragPreview.character}
-           </div>
-           <div style={{ 
-             fontSize: "10px", 
-             color: "#666",
-             textAlign: "center"
-           }}>
-             {dragPreview.filename}
-           </div>
-         </div>
-       )}
          
          {/* Right Edge Buffer Zone */}
          <div style={{
