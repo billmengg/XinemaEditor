@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { getAllClips, getVideoFile, generateThumbnail, getClipDuration, processPrerender, extractSingleFrame, serveFrame, streamFrameDirect } = require('../controllers/fileController');
+const { getAllClips, getVideoFile, generateThumbnail, getClipDuration, processPrerender, streamFrameDirect, getVideoInfo } = require('../controllers/fileController');
 
 // GET /api/files
 router.get('/files', getAllClips);
@@ -17,14 +17,13 @@ router.get('/duration/:character/:filename', getClipDuration);
 // POST /api/prerender - Process prerender areas and generate composite frames
 router.post('/prerender', processPrerender);
 
-// POST /api/extract-frame - Extract single frame from video
-router.post('/extract-frame', extractSingleFrame);
-
-// GET /api/frame/:character/:filename/:frameNumber - Serve extracted frame
-router.get('/frame/:character/:filename/:frameNumber', serveFrame);
+// Note: Cached frame extraction routes removed - now using direct streaming
 
 // GET /api/frame-direct/:character/:filename/:frameNumber - Stream frame directly from video
 router.get('/frame-direct/:character/:filename/:frameNumber', streamFrameDirect);
+
+// GET /api/video-info/:character/:filename - Get video metadata including frame rate
+router.get('/video-info/:character/:filename', getVideoInfo);
 
 // Test endpoint
 router.get('/test', (req, res) => {

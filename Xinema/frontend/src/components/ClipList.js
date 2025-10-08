@@ -240,6 +240,7 @@ export default function ClipList({ onClipSelect }) {
   const [dragPosition, setDragPosition] = useState({ x: 0, y: 0 });
   const [isOverTimeline, setIsOverTimeline] = useState(false);
   const [dragEndTime, setDragEndTime] = useState(0); // Track when drag ended
+  const [isDragDebounced, setIsDragDebounced] = useState(false); // Prevent rapid drag operations
 
   // Function to convert duration string to seconds
   const parseDurationToSeconds = (durationStr) => {
@@ -263,6 +264,52 @@ export default function ClipList({ onClipSelect }) {
       setLoading(false);
     }
     fetchClips();
+  }, []);
+
+  // Cleanup effect to reset drag state on unmount
+  useEffect(() => {
+    return () => {
+      // Reset drag state when component unmounts
+      setDraggedClip(null);
+      setIsDragging(false);
+      setDragOffset({ x: 0, y: 0 });
+      setDragPosition({ x: 0, y: 0 });
+      setIsOverTimeline(false);
+      setIsDragDebounced(false);
+    };
+  }, []);
+
+  // Additional cleanup on window blur to prevent stuck drag states
+  useEffect(() => {
+    const handleWindowBlur = () => {
+      if (isDragging) {
+        setDraggedClip(null);
+        setIsDragging(false);
+        setDragOffset({ x: 0, y: 0 });
+        setDragPosition({ x: 0, y: 0 });
+        setIsOverTimeline(false);
+        setIsDragDebounced(false);
+      }
+    };
+
+    window.addEventListener('blur', handleWindowBlur);
+    return () => window.removeEventListener('blur', handleWindowBlur);
+  }, [isDragging]);
+
+  // Listen for successful clip placement to immediately reset drag state
+  useEffect(() => {
+    const handleClipPlacementSuccess = () => {
+      // Immediately reset all drag state when clip is successfully placed
+      setDraggedClip(null);
+      setIsDragging(false);
+      setDragOffset({ x: 0, y: 0 });
+      setDragPosition({ x: 0, y: 0 });
+      setIsOverTimeline(false);
+      setIsDragDebounced(false);
+    };
+
+    window.addEventListener('clipPlacementSuccess', handleClipPlacementSuccess);
+    return () => window.removeEventListener('clipPlacementSuccess', handleClipPlacementSuccess);
   }, []);
 
   // Track mouse movement during drag
@@ -350,8 +397,10 @@ export default function ClipList({ onClipSelect }) {
             // Dispatch the event to the timeline
             timelineElement.dispatchEvent(dropEvent);
           }
+          // If not over timeline, don't place the clip - just cancel the drag
         }
         
+        // ALWAYS clear drag state regardless of where mouse is
         // Clear any existing drag preview on timeline
         const timelineElement2 = document.querySelector('.timeline-content');
         if (timelineElement2) {
@@ -359,6 +408,7 @@ export default function ClipList({ onClipSelect }) {
           timelineElement2.dispatchEvent(clearEvent);
         }
         
+        // Reset all drag state
         setDraggedClip(null);
         setIsDragging(false);
         setDragOffset({ x: 0, y: 0 });
@@ -423,6 +473,17 @@ export default function ClipList({ onClipSelect }) {
     // Check if currentTarget exists
     if (!e.currentTarget) {
       console.error('currentTarget is null in handleMouseDown');
+      return;
+    }
+    
+    // Prevent starting new drag if one is already in progress
+    if (isDragging) {
+      return;
+    }
+    
+    // Prevent rapid drag operations (debounce)
+    const now = Date.now();
+    if (now - dragEndTime < 100) { // 100ms debounce
       return;
     }
     
@@ -516,6 +577,16 @@ export default function ClipList({ onClipSelect }) {
       // Remove listeners if mouse is released without dragging
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
+      
+      // Always reset drag state to prevent stuck states
+      if (isDragging) {
+        setDraggedClip(null);
+        setIsDragging(false);
+        setDragOffset({ x: 0, y: 0 });
+        setDragPosition({ x: 0, y: 0 });
+        setIsOverTimeline(false);
+        setDragEndTime(Date.now());
+      }
     };
     
     // Add temporary listeners to detect if this becomes a drag
@@ -561,14 +632,15 @@ export default function ClipList({ onClipSelect }) {
             top: dragPosition.y - 50,   // Center vertically (half of ~100px height)
             zIndex: 1000,
             pointerEvents: "none",
-            opacity: 0.8,
+            opacity: 0.9,
             border: "2px solid #007bff",
             borderRadius: "6px",
             boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
             background: "white",
             padding: "12px",
             width: "200px",
-            transform: "scale(1.05)"
+            transform: "scale(1.05)",
+            transition: "none" // Disable transitions for immediate positioning
           }}
         >
           {/* Lazy Loading Thumbnail */}

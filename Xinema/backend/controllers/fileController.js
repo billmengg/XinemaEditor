@@ -84,10 +84,13 @@ const getAllClips = async (req, res) => {
 const getVideoFile = (req, res) => {
   const { character, filename } = req.params;
   
+  // Decode URL-encoded filename
+  const decodedFilename = decodeURIComponent(filename);
+  
   // Construct the path to the video file
   const videoPath = path.join(
     'C:', 'Users', 'William', 'Documents', 'YouTube', 'Video', 'Arcane Footage', 'Video Footage 2',
-    character, filename
+    character, decodedFilename
   );
   
   // Check if file exists
@@ -127,10 +130,13 @@ const getVideoFile = (req, res) => {
 const generateThumbnail = (req, res) => {
   const { character, filename } = req.params;
   
+  // Decode URL-encoded filename
+  const decodedFilename = decodeURIComponent(filename);
+  
   // Construct the path to the video file
   const videoPath = path.join(
     'C:', 'Users', 'William', 'Documents', 'YouTube', 'Video', 'Arcane Footage', 'Video Footage 2',
-    character, filename
+    character, decodedFilename
   );
   
   // Check if file exists
@@ -138,20 +144,7 @@ const generateThumbnail = (req, res) => {
     return res.status(404).json({ error: 'Video file not found', path: videoPath });
   }
   
-  // Create thumbnails directory if it doesn't exist
-  const thumbnailsDir = path.join(__dirname, '../thumbnails');
-  if (!fs.existsSync(thumbnailsDir)) {
-    fs.mkdirSync(thumbnailsDir, { recursive: true });
-  }
-  
-  // Generate thumbnail filename
-  const thumbnailFilename = `${character}_${filename.replace('.mp4', '.jpg')}`;
-  const thumbnailPath = path.join(thumbnailsDir, thumbnailFilename);
-  
-  // Check if thumbnail already exists
-  if (fs.existsSync(thumbnailPath)) {
-    return res.sendFile(thumbnailPath);
-  }
+  // Note: No folder creation - using placeholder thumbnails only
   
   // Create a simple placeholder image response
   const placeholderSvg = `<svg width="200" height="150" xmlns="http://www.w3.org/2000/svg">
@@ -168,10 +161,13 @@ const getClipDuration = async (req, res) => {
   try {
     const { character, filename } = req.params;
     
+    // Decode URL-encoded filename
+    const decodedFilename = decodeURIComponent(filename);
+    
     // Construct video path
     const videoPath = path.join(
       'C:', 'Users', 'William', 'Documents', 'YouTube', 'Video', 'Arcane Footage', 'Video Footage 2',
-      character, filename
+      character, decodedFilename
     );
     
     // Get actual duration using Windows PowerShell
@@ -188,39 +184,17 @@ const processPrerender = async (req, res) => {
   try {
     const { startFrame, endFrame, durationFrames, clips } = req.body;
     
-    console.log('Processing prerender:', { startFrame, endFrame, durationFrames, clips });
+    console.log('Processing prerender (streaming mode):', { startFrame, endFrame, durationFrames, clips });
     
-    // Create prerender output directory
-    const prerenderDir = path.join(__dirname, '../prerender');
-    if (!fs.existsSync(prerenderDir)) {
-      fs.mkdirSync(prerenderDir, { recursive: true });
-    }
-    
-    // Generate unique prerender ID
-    const prerenderId = `prerender_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    const outputDir = path.join(prerenderDir, prerenderId);
-    fs.mkdirSync(outputDir, { recursive: true });
-    
-    // Process each frame in the prerender area
-    const framePromises = [];
-    for (let frame = 0; frame < durationFrames; frame++) {
-      const globalFrame = startFrame + frame;
-      framePromises.push(processFrame(globalFrame, frame, clips, outputDir));
-    }
-    
-    // Wait for all frames to be processed
-    await Promise.all(framePromises);
-    
-    // Create composite video from frames
-    const outputVideoPath = path.join(outputDir, 'composite.mp4');
-    await createCompositeVideo(outputDir, outputVideoPath, durationFrames);
-    
+    // Instead of creating files, just return the prerender data for streaming
+    // The frontend will use the streamFrameDirect endpoint for individual frames
     res.json({
       success: true,
-      prerenderId,
-      outputPath: outputVideoPath,
+      prerenderId: `stream_${Date.now()}`,
+      outputPath: null, // No file output in streaming mode
       frameCount: durationFrames,
-      message: 'Prerender completed successfully'
+      message: 'Prerender ready for streaming - frames will be extracted on demand',
+      streamingMode: true
     });
     
   } catch (error) {
@@ -229,189 +203,135 @@ const processPrerender = async (req, res) => {
   }
 };
 
-// Process individual frame with track compositing
-const processFrame = async (globalFrame, localFrame, clips, outputDir) => {
-  const frameFilename = `frame_${localFrame.toString().padStart(6, '0')}.png`;
-  const framePath = path.join(outputDir, frameFilename);
-  
-  // Find clips that are active at this frame
-  const activeClips = clips.filter(clip => {
-    return globalFrame >= clip.startFrame && globalFrame < clip.endFrame;
-  });
-  
-  if (activeClips.length === 0) {
-    // No clips active - create black frame
-    await createBlackFrame(framePath);
-    return;
-  }
-  
-  // Sort by track (highest track number first for compositing)
-  const sortedClips = activeClips.sort((a, b) => b.track - a.track);
-  
-  // Start with the lowest track (bottom layer)
-  let compositeImage = null;
-  
-  for (const clip of sortedClips) {
-    const clipFrame = globalFrame - clip.startFrame;
-    const videoPath = path.join(
-      'C:', 'Users', 'William', 'Documents', 'YouTube', 'Video', 'Arcane Footage', 'Video Footage 2',
-      clip.character, clip.filename
-    );
-    
-    if (fs.existsSync(videoPath)) {
-      // Extract frame from video
-      const extractedFramePath = path.join(outputDir, `temp_${clip.character}_${clip.filename}_${clipFrame}.png`);
-      await extractFrameFromVideo(videoPath, clipFrame, extractedFramePath);
-      
-      if (compositeImage === null) {
-        // First clip - use as base
-        compositeImage = extractedFramePath;
-      } else {
-        // Composite with existing image (higher track over lower track)
-        await compositeFrames(compositeImage, extractedFramePath, compositeImage);
-      }
-    }
-  }
-  
-  if (compositeImage) {
-    // Move final composite to frame path
-    fs.renameSync(compositeImage, framePath);
-  } else {
-    // No valid clips - create black frame
-    await createBlackFrame(framePath);
-  }
-};
+// Note: Frame processing functions removed - now using direct streaming from MP4 files
 
-// Extract frame from video using FFmpeg
-const extractFrameFromVideo = async (videoPath, frameNumber, outputPath) => {
-  const command = `ffmpeg -i "${videoPath}" -vf "select=eq(n\\,${frameNumber})" -vframes 1 -y "${outputPath}"`;
-  await execAsync(command);
-};
-
-// Create black frame
-const createBlackFrame = async (outputPath) => {
-  const command = `ffmpeg -f lavfi -i color=black:size=1920x1080:duration=1/60 -vframes 1 -y "${outputPath}"`;
-  await execAsync(command);
-};
-
-// Composite two frames (higher track over lower track)
-const compositeFrames = async (baseFrame, overlayFrame, outputPath) => {
-  const command = `ffmpeg -i "${baseFrame}" -i "${overlayFrame}" -filter_complex "[0:v][1:v]overlay=0:0" -y "${outputPath}"`;
-  await execAsync(command);
-};
-
-// Create composite video from frames
-const createCompositeVideo = async (framesDir, outputPath, frameCount) => {
-  // Create video at 60fps to match timeline frame rate
-  const command = `ffmpeg -framerate 60 -i "${framesDir}/frame_%06d.png" -c:v libx264 -pix_fmt yuv420p -r 60 -y "${outputPath}"`;
-  await execAsync(command);
-};
-
-// Extract single frame from video (cached approach)
-const extractSingleFrame = async (req, res) => {
-  try {
-    const { character, filename, frameNumber } = req.body;
-    
-    console.log('Extracting single frame:', { character, filename, frameNumber });
-    
-    // Construct video path
-    const videoPath = path.join(
-      'C:', 'Users', 'William', 'Documents', 'YouTube', 'Video', 'Arcane Footage', 'Video Footage 2',
-      character, filename
-    );
-    
-    if (!fs.existsSync(videoPath)) {
-      return res.status(404).json({ error: 'Video file not found' });
-    }
-    
-    // Create frames directory if it doesn't exist
-    const framesDir = path.join(__dirname, '../frames');
-    if (!fs.existsSync(framesDir)) {
-      fs.mkdirSync(framesDir, { recursive: true });
-    }
-    
-    // Generate frame filename
-    const frameFilename = `${character}_${filename}_frame_${frameNumber}.png`;
-    const framePath = path.join(framesDir, frameFilename);
-    
-    // Check if frame already exists (caching)
-    if (fs.existsSync(framePath)) {
-      console.log('Frame already exists, using cached version');
-      return res.json({
-        success: true,
-        framePath: framePath,
-        frameNumber: frameNumber,
-        message: 'Frame loaded from cache'
-      });
-    }
-    
-    // Extract frame using FFmpeg
-    const command = `ffmpeg -i "${videoPath}" -vf "select=eq(n\\,${frameNumber})" -vframes 1 -y "${framePath}"`;
-    await execAsync(command);
-    
-    res.json({
-      success: true,
-      framePath: framePath,
-      frameNumber: frameNumber,
-      message: 'Frame extracted successfully'
-    });
-    
-  } catch (error) {
-    console.error('Error extracting single frame:', error);
-    res.status(500).json({ error: error.message });
-  }
-};
-
-// Serve extracted frame
-const serveFrame = (req, res) => {
-  try {
-    const { character, filename, frameNumber } = req.params;
-    
-    // Construct frame path
-    const frameFilename = `${character}_${filename}_frame_${frameNumber}.png`;
-    const framePath = path.join(__dirname, '../frames', frameFilename);
-    
-    // Check if frame exists
-    if (!fs.existsSync(framePath)) {
-      return res.status(404).json({ error: 'Frame not found' });
-    }
-    
-    // Serve the frame image
-    res.sendFile(framePath);
-    
-  } catch (error) {
-    console.error('Error serving frame:', error);
-    res.status(500).json({ error: error.message });
-  }
-};
+// Note: Cached frame extraction removed - now using direct streaming from MP4 files
 
 // Stream frame directly from video (no disk storage)
 const streamFrameDirect = (req, res) => {
+  console.log('🎬 FRAME REQUEST RECEIVED:', req.params);
+  
+  // Simple test - just return a basic response first
+  if (req.params.frameNumber === 'test') {
+    res.setHeader('Content-Type', 'text/plain');
+    res.send('Frame endpoint is working');
+    return;
+  }
+  
   try {
     const { character, filename, frameNumber } = req.params;
     
-    console.log('🎬 Stream frame request:', { character, filename, frameNumber });
+    // Decode URL-encoded filename
+    const decodedFilename = decodeURIComponent(filename);
     
-    // Construct video path
+    console.log('🎬 Stream frame request:', { 
+      character, 
+      filename: decodedFilename, 
+      frameNumber,
+      originalFilename: filename,
+      urlEncoded: filename !== decodedFilename
+    });
+    
+    // Construct video path with decoded filename
     const videoPath = path.join(
       'C:', 'Users', 'William', 'Documents', 'YouTube', 'Video', 'Arcane Footage', 'Video Footage 2',
-      character, filename
+      character, decodedFilename
     );
     
     console.log('📁 Video path:', videoPath);
+    console.log('📁 Path exists check:', fs.existsSync(videoPath));
+    console.log('📁 Directory exists:', fs.existsSync(path.dirname(videoPath)));
+    console.log('📁 Directory contents:', fs.readdirSync(path.dirname(videoPath)));
     
     if (!fs.existsSync(videoPath)) {
-      console.error('❌ Video file not found:', videoPath);
-      return res.status(404).json({ error: 'Video file not found' });
+      console.error('❌ Video file not found:', {
+        path: videoPath,
+        character,
+        originalFilename: filename,
+        decodedFilename,
+        directoryExists: fs.existsSync(path.dirname(videoPath))
+      });
+      return res.status(404).json({ 
+        error: 'Video file not found',
+        path: videoPath,
+        character,
+        filename: decodedFilename
+      });
     }
     
     console.log('✅ Video file exists, starting FFmpeg...');
+    
+    // Validate frame number and ensure it's an integer
+    frameNumber = Math.floor(parseFloat(frameNumber));
+    if (isNaN(frameNumber) || frameNumber < 0) {
+      console.error('❌ Invalid frame number:', frameNumber);
+      return res.status(400).json({ error: 'Invalid frame number' });
+    }
+    
+    // Log frame number for debugging
+    console.log('🎯 FRAME REQUEST DEBUG:', {
+      requestedFrame: frameNumber,
+      video: decodedFilename,
+      character: character,
+      originalFilename: filename,
+      decodedFilename: decodedFilename,
+      frameType: typeof frameNumber,
+      frameIsInteger: Number.isInteger(frameNumber)
+    });
+    
+    // Get video frame count to validate frame number
+    try {
+      const { spawn } = require('child_process');
+      const ffprobe = spawn('ffprobe', [
+        '-v', 'quiet',
+        '-select_streams', 'v:0',
+        '-count_frames',
+        '-show_entries', 'stream=nb_frames',
+        videoPath
+      ]);
+      
+      let probeOutput = '';
+      ffprobe.stdout.on('data', (data) => {
+        probeOutput += data.toString();
+      });
+      
+      ffprobe.on('close', (code) => {
+        if (code === 0) {
+          try {
+            const match = probeOutput.match(/nb_frames=(\d+)/);
+            if (match) {
+              const totalFrames = parseInt(match[1]);
+              console.log('📹 Video has', totalFrames, 'frames, requesting frame', frameNumber);
+              
+              if (frameNumber >= totalFrames) {
+                console.error('❌ Frame number out of range:', {
+                  requested: frameNumber,
+                  totalFrames: totalFrames,
+                  video: decodedFilename
+                });
+                return res.status(400).json({ 
+                  error: 'Frame number out of range',
+                  requested: frameNumber,
+                  totalFrames: totalFrames,
+                  message: `Video only has ${totalFrames} frames, but frame ${frameNumber} was requested`
+                });
+              }
+            }
+          } catch (parseError) {
+            console.error('❌ Error parsing video frame count:', parseError);
+          }
+        }
+      });
+    } catch (probeError) {
+      console.error('❌ Error getting video frame count:', probeError);
+    }
     
     // Set headers for image response
     res.setHeader('Content-Type', 'image/png');
     res.setHeader('Cache-Control', 'public, max-age=3600'); // Cache for 1 hour
     
     // Use FFmpeg to stream frame directly to response
+    // Try using frame-based seeking with more reliable approach
     const ffmpegArgs = [
       '-i', videoPath,
       '-vf', `select=eq(n\\,${frameNumber})`,
@@ -426,29 +346,83 @@ const streamFrameDirect = (req, res) => {
     const { spawn } = require('child_process');
     const ffmpeg = spawn('ffmpeg', ffmpegArgs);
     
+    // Set timeout to prevent hanging
+    const timeout = setTimeout(() => {
+      console.error('⏰ FFmpeg timeout - killing process');
+      ffmpeg.kill('SIGTERM');
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Frame extraction timeout' });
+      }
+    }, 10000); // 10 second timeout
+    
+    // Capture stderr for debugging
+    let stderrOutput = '';
+    ffmpeg.stderr.on('data', (data) => {
+      stderrOutput += data.toString();
+      console.log('🔧 FFmpeg stderr:', data.toString());
+    });
+    
+    // Track data being sent
+    let dataSent = 0;
+    ffmpeg.stdout.on('data', (chunk) => {
+      dataSent += chunk.length;
+      console.log('📤 FFmpeg data chunk:', chunk.length, 'bytes, total:', dataSent);
+    });
+    
     ffmpeg.stdout.pipe(res);
     
+    // Add response end handler to debug
+    res.on('finish', () => {
+      console.log('📤 Response finished, data sent:', dataSent, 'bytes');
+    });
+    
+    res.on('close', () => {
+      console.log('📤 Response closed, data sent:', dataSent, 'bytes');
+    });
+    
     ffmpeg.on('error', (error) => {
-      console.error('❌ FFmpeg error:', error);
+      console.error('❌ FFmpeg spawn error:', {
+        error: error.message,
+        code: error.code,
+        errno: error.errno,
+        syscall: error.syscall,
+        path: error.path,
+        spawnargs: error.spawnargs
+      });
       if (!res.headersSent) {
-        res.status(500).json({ error: 'Frame extraction failed' });
+        res.status(500).json({ 
+          error: 'Frame extraction failed',
+          details: error.message,
+          stderr: stderrOutput
+        });
       }
     });
     
     ffmpeg.on('close', (code) => {
-      console.log('🏁 FFmpeg process finished with code:', code);
+      clearTimeout(timeout); // Clear the timeout
+      console.log('🏁 FFmpeg process finished:', {
+        code,
+        stderr: stderrOutput,
+        success: code === 0,
+        dataSent: dataSent
+      });
       if (code !== 0) {
-        console.error('❌ FFmpeg process exited with error code:', code);
+        console.error('❌ FFmpeg process failed:', {
+          exitCode: code,
+          stderr: stderrOutput,
+          command: 'ffmpeg ' + ffmpegArgs.join(' '),
+          dataSent: dataSent
+        });
         if (!res.headersSent) {
-          res.status(500).json({ error: 'Frame extraction failed' });
+          res.status(500).json({ 
+            error: 'Frame extraction failed',
+            exitCode: code,
+            stderr: stderrOutput
+          });
         }
       } else {
-        console.log('✅ Frame extraction completed successfully');
+        console.log('✅ Frame extraction completed successfully, data sent:', dataSent, 'bytes');
       }
-    });
-    
-    ffmpeg.stderr.on('data', (data) => {
-      console.log('🔍 FFmpeg stderr:', data.toString());
     });
     
   } catch (error) {
@@ -457,13 +431,84 @@ const streamFrameDirect = (req, res) => {
   }
 };
 
-module.exports = { 
+// Get video metadata including frame rate
+const getVideoInfo = async (req, res) => {
+  try {
+    const { character, filename } = req.params;
+    const decodedFilename = decodeURIComponent(filename);
+    
+    console.log('🎬 Getting video info:', { character, filename: decodedFilename });
+    
+    // Construct video path
+    const videoPath = path.join(
+      'C:', 'Users', 'William', 'Documents', 'YouTube', 'Video', 'Arcane Footage', 'Video Footage 2',
+      character, decodedFilename
+    );
+    
+    if (!fs.existsSync(videoPath)) {
+      return res.status(404).json({ error: 'Video file not found' });
+    }
+    
+    // Use ffprobe to get video metadata
+    const { spawn } = require('child_process');
+    const ffprobe = spawn('ffprobe', [
+      '-v', 'quiet',
+      '-print_format', 'json',
+      '-show_format',
+      '-show_streams',
+      videoPath
+    ]);
+    
+    let probeOutput = '';
+    ffprobe.stdout.on('data', (data) => {
+      probeOutput += data.toString();
+    });
+    
+    ffprobe.on('close', (code) => {
+      if (code === 0) {
+        try {
+          const videoInfo = JSON.parse(probeOutput);
+          const videoStream = videoInfo.streams.find(s => s.codec_type === 'video');
+          
+          if (videoStream) {
+            // Parse frame rate (could be in format "30/1" or "30")
+            let frameRate = 30; // Default
+            if (videoStream.r_frame_rate) {
+              const [num, den] = videoStream.r_frame_rate.split('/');
+              frameRate = den ? parseFloat(num) / parseFloat(den) : parseFloat(num);
+            }
+            
+            res.json({
+              frameRate: Math.round(frameRate), // Ensure integer frame rate
+              duration: parseFloat(videoStream.duration),
+              width: videoStream.width,
+              height: videoStream.height,
+              codec: videoStream.codec_name
+            });
+          } else {
+            res.status(500).json({ error: 'No video stream found' });
+          }
+        } catch (parseError) {
+          console.error('Error parsing video info:', parseError);
+          res.status(500).json({ error: 'Failed to parse video metadata' });
+        }
+      } else {
+        res.status(500).json({ error: 'Failed to get video metadata' });
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error getting video info:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+module.exports = {
   getAllClips,
   getVideoFile,
   generateThumbnail,
   getClipDuration,
   processPrerender,
-  extractSingleFrame,
-  serveFrame,
-  streamFrameDirect
+  streamFrameDirect,
+  getVideoInfo
 };

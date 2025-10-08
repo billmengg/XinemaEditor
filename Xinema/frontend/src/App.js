@@ -129,10 +129,11 @@ function EditorLayout() {
   const [currentFrame, setCurrentFrame] = React.useState(null);
   const [frameLoadingState, setFrameLoadingState] = React.useState('idle'); // 'idle', 'loading', 'loaded', 'error'
 
-  // Handle prerender video playback
+  // Handle prerender video playback (streaming mode - no file output)
   const handlePrerenderPlayback = (prerenderData) => {
-    if (prerenderData && prerenderData.outputPath) {
-      setCurrentPreviewVideo(prerenderData.outputPath);
+    if (prerenderData && prerenderData.streamingMode) {
+      console.log('Prerender ready for streaming mode');
+      // No file output in streaming mode - frames are extracted on demand
     }
   };
 
@@ -187,12 +188,17 @@ function EditorLayout() {
     testBackendConnection();
   }, []);
 
-  // Listen for prerender completion
+  // Listen for prerender completion (streaming mode)
   React.useEffect(() => {
     const handlePrerenderComplete = (event) => {
-      const { prerenderId, outputPath, frameCount } = event.detail;
-      setPrerenderVideos(prev => [...prev, { prerenderId, outputPath, frameCount }]);
-      handlePrerenderPlayback({ outputPath, frameCount });
+      const { prerenderId, outputPath, frameCount, streamingMode } = event.detail;
+      if (streamingMode) {
+        console.log('Prerender ready for streaming mode');
+        handlePrerenderPlayback({ streamingMode: true });
+      } else {
+        setPrerenderVideos(prev => [...prev, { prerenderId, outputPath, frameCount }]);
+        handlePrerenderPlayback({ outputPath, frameCount });
+      }
     };
 
     const handleShowFrame = (event) => {
@@ -210,8 +216,17 @@ function EditorLayout() {
         console.log('🔄 Frame loading started:', {
           character,
           filename,
-          frameNumber,
-          url: `http://localhost:5000/api/frame-direct/${character}/${filename}/${frameNumber}`
+          originalFrameNumber: frameNumber,
+          roundedFrameNumber: Math.floor(frameNumber),
+          timelinePosition,
+          clipStartFrames,
+          frameCalculation: {
+            timelinePosition: timelinePosition,
+            clipStartFrames: clipStartFrames,
+            calculatedFrame: timelinePosition - clipStartFrames,
+            finalFrame: Math.floor(frameNumber)
+          },
+          url: `http://localhost:5000/api/frame-direct/${character}/${filename}/${Math.floor(frameNumber)}`
         });
         
         // Test if the frame URL is accessible
@@ -232,11 +247,11 @@ function EditorLayout() {
             console.error('❌ Frame URL test error:', error);
           });
         
-        setCurrentFrame({ character, filename, frameNumber, timelinePosition, clipStartFrames });
+        setCurrentFrame({ character, filename, frameNumber: Math.floor(frameNumber), timelinePosition, clipStartFrames });
         setFrameLoadingState('loading');
       } else {
         console.log('⚠️ Setting current frame with null/invalid data');
-        setCurrentFrame({ character, filename, frameNumber, timelinePosition, clipStartFrames });
+        setCurrentFrame({ character, filename, frameNumber: Math.floor(frameNumber), timelinePosition, clipStartFrames });
         setFrameLoadingState('idle');
       }
     };
@@ -419,8 +434,32 @@ function EditorLayout() {
                           filename: currentFrame.filename,
                           frameNumber: currentFrame.frameNumber,
                           error: e,
-                          networkState: e.target.networkState
+                          networkState: e.target.networkState,
+                          readyState: e.target.readyState,
+                          complete: e.target.complete,
+                          naturalWidth: e.target.naturalWidth,
+                          naturalHeight: e.target.naturalHeight,
+                          currentSrc: e.target.currentSrc,
+                          crossOrigin: e.target.crossOrigin,
+                          loading: e.target.loading,
+                          decoding: e.target.decoding
                         });
+                        
+                        // Test the URL directly to see what the server returns
+                        fetch(e.target.src)
+                          .then(response => {
+                            console.error('🔍 Direct URL test failed:', {
+                              status: response.status,
+                              statusText: response.statusText,
+                              headers: Object.fromEntries(response.headers.entries()),
+                              url: response.url,
+                              ok: response.ok
+                            });
+                          })
+                          .catch(fetchError => {
+                            console.error('🔍 Direct URL fetch error:', fetchError);
+                          });
+                        
                         setFrameLoadingState('error');
                       }}
                     />
@@ -429,19 +468,34 @@ function EditorLayout() {
                       position: 'absolute',
                       bottom: '8px',
                       left: '8px',
-                      background: 'rgba(0, 0, 0, 0.7)',
+                      background: 'rgba(0, 0, 0, 0.8)',
                       color: 'white',
-                      padding: '4px 8px',
+                      padding: '8px 12px',
                       borderRadius: '4px',
-                      fontSize: '12px',
-                      fontFamily: 'monospace'
+                      fontSize: '11px',
+                      fontFamily: 'monospace',
+                      maxWidth: '400px',
+                      wordBreak: 'break-all'
                     }}>
-                      {currentFrame.character}/{currentFrame.filename} - Frame {Math.floor(currentFrame.frameNumber)}
-                      <br />
-                      Status: {frameLoadingState}
-                      {frameLoadingState === 'loading' && ' 🔄'}
-                      {frameLoadingState === 'loaded' && ' ✅'}
-                      {frameLoadingState === 'error' && ' ❌'}
+                      <div><strong>{currentFrame.character}/{currentFrame.filename}</strong></div>
+                      <div>Timeline Pos: {currentFrame.timelinePosition}</div>
+                      <div>Clip Start: {currentFrame.clipStartFrames}</div>
+                      <div>Raw Frame (60fps): {currentFrame.timelinePosition - currentFrame.clipStartFrames}</div>
+                      <div>Converted Frame (24fps): {Math.floor(currentFrame.frameNumber)}</div>
+                      <div>Conversion: ({currentFrame.timelinePosition - currentFrame.clipStartFrames} × 24) ÷ 60</div>
+                      <div>Status: {frameLoadingState}
+                        {frameLoadingState === 'loading' && ' 🔄'}
+                        {frameLoadingState === 'loaded' && ' ✅'}
+                        {frameLoadingState === 'error' && ' ❌'}
+                      </div>
+                      {frameLoadingState === 'error' && (
+                        <div style={{ marginTop: '4px', color: '#ff6b6b' }}>
+                          <div>❌ Frame failed to load</div>
+                          <div style={{ fontSize: '10px', marginTop: '2px' }}>
+                            Check console for detailed error info
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ) : (

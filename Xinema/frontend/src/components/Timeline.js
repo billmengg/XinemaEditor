@@ -72,10 +72,8 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
     const timelineElement = document.querySelector('.timeline-content');
     if (timelineElement) {
       const timelineRect = timelineElement.getBoundingClientRect();
-      console.log(`TIMELINE WIDTH DEBUG: Actual width: ${timelineRect.width}px, Hardcoded: ${TIMELINE_WIDTH_PIXELS}px`);
       return timelineRect.width;
     }
-    console.log(`TIMELINE WIDTH DEBUG: Using fallback: ${TIMELINE_WIDTH_PIXELS}px`);
     return TIMELINE_WIDTH_PIXELS; // Fallback to hardcoded value
   };
 
@@ -413,6 +411,7 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
           // Convert pixel position to time
           const startTime = pixelToTime(startPixel);
           
+          // Create clip with default frame rate, will be updated async
           const newClip = {
             id: `clip_${Date.now()}`,
             // Don't spread clipData to avoid overriding calculated properties
@@ -426,8 +425,16 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
             widthPixel: widthPixel,
             startFrames: constrainedPosition.startFrames,
             endFrames: constrainedPosition.endFrames,
-            durationFrames: durationInFrames
+            durationFrames: durationInFrames,
+            frameRate: 30 // Default frame rate, will be updated async
           };
+          
+          // Get actual video frame rate and update clip
+          getVideoFrameRate(clipData.character, clipData.filename).then(frameRate => {
+            setTimelineClips(prev => prev.map(c => 
+              c.id === newClip.id ? { ...c, frameRate } : c
+            ));
+          });
           
           setTimelineClips(prev => {
             const updatedClips = [...prev, newClip];
@@ -505,6 +512,20 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
     const seconds = minutes * 60;
     const frames = timeToFrames(seconds);
     return framesToPixels(frames);
+  };
+
+  // Get video frame rate from backend
+  const getVideoFrameRate = async (character, filename) => {
+    try {
+      const response = await fetch(`http://localhost:5000/api/video-info/${character}/${filename}`);
+      if (response.ok) {
+        const data = await response.json();
+        return data.frameRate || 30; // Default to 30fps if not found
+      }
+    } catch (error) {
+      console.error('Error getting video frame rate:', error);
+    }
+    return 30; // Default fallback
   };
 
   // Apply timeline boundary constraints to clip positions
@@ -1093,14 +1114,20 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
 
   // Process all prerender areas and generate frames
   const processPrerenderAreas = async () => {
-    if (prerenderAreas.length === 0) return;
+    if (prerenderAreas.length === 0 || isDraggingClip) return;
     
-    console.log('Processing prerender areas:', prerenderAreas);
+    // Only log when not dragging to reduce spam
+    if (!isDraggingClip) {
+      console.log('Processing prerender areas:', prerenderAreas);
+    }
     
     for (const area of prerenderAreas) {
       const prerenderData = await generatePrerenderFrames(area);
       if (prerenderData) {
-        console.log('Prerender data for area:', prerenderData);
+        // Only log when not dragging to reduce spam
+        if (!isDraggingClip) {
+          console.log('Prerender data for area:', prerenderData);
+        }
         
         // Send to backend for frame extraction and compositing
         try {
@@ -1114,14 +1141,18 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
           
           if (response.ok) {
             const result = await response.json();
-            console.log('Prerender result:', result);
+            // Only log when not dragging to reduce spam
+            if (!isDraggingClip) {
+              console.log('Prerender result:', result);
+            }
             
             // Dispatch prerender completion event
             const event = new CustomEvent('prerenderComplete', {
               detail: {
                 prerenderId: result.prerenderId,
                 outputPath: result.outputPath,
-                frameCount: result.frameCount
+                frameCount: result.frameCount,
+                streamingMode: result.streamingMode
               }
             });
             window.dispatchEvent(event);
@@ -1195,19 +1226,41 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
     };
   }, [isPlaying]);
 
-  // Extract frame when playhead moves
+  // Extract frame when playhead moves (but only when clips are placed, not during drag operations)
   useEffect(() => {
-    extractSingleFrame(smoothPlayheadPosition);
-  }, [smoothPlayheadPosition]);
+    if (!isDraggingClip && !isDraggingPlayhead && timelineClips.length > 0) {
+      extractSingleFrame(smoothPlayheadPosition);
+    }
+  }, [smoothPlayheadPosition, isDraggingClip, isDraggingPlayhead, timelineClips.length]);
+
+  // Extract frame when playhead drag is released
+  useEffect(() => {
+    if (!isDraggingPlayhead && !isDraggingClip && timelineClips.length > 0) {
+      // Small delay to ensure playhead position is settled
+      const timeoutId = setTimeout(() => {
+        extractSingleFrame(smoothPlayheadPosition);
+      }, 50);
+      
+      return () => clearTimeout(timeoutId);
+    }
+  }, [isDraggingPlayhead, isDraggingClip, smoothPlayheadPosition, timelineClips.length]);
 
   // Check if playhead is in a prerender area and trigger prerendering if needed
   const checkAndTriggerPrerender = (framePosition) => {
+    // Don't trigger prerender during drag operations
+    if (isDraggingClip) {
+      return;
+    }
+    
     const isInPrerenderArea = prerenderAreas.some(area => 
       framePosition >= area.startFrames && framePosition <= area.endFrames
     );
     
     if (isInPrerenderArea && prerenderAreas.length > 0) {
-      console.log('Playhead is in prerender area, triggering prerender...');
+      // Only log when not dragging to reduce spam
+      if (!isDraggingClip) {
+        console.log('Playhead is in prerender area, triggering prerender...');
+      }
       processPrerenderAreas();
     }
   };
@@ -1216,8 +1269,25 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
   const extractSingleFrame = async (framePosition) => {
     // Only process if there are clips on the timeline
     if (timelineClips.length === 0) {
-      console.log('No clips on timeline, skipping frame extraction');
       return;
+    }
+    
+    // Debug timeline position
+    if (!isDraggingClip) {
+      console.log('🎬 TIMELINE POSITION DEBUG:', {
+        framePosition: framePosition,
+        smoothPlayheadPosition: smoothPlayheadPosition,
+        playheadPosition: playheadPosition,
+        timelineClipsCount: timelineClips.length,
+        clips: timelineClips.map(clip => ({
+          id: clip.id,
+          character: clip.character,
+          filename: clip.filename,
+          startFrames: clip.startFrames,
+          endFrames: clip.endFrames,
+          frameRate: clip.frameRate
+        }))
+      });
     }
     
     // Find which clip is active at this frame position
@@ -1225,28 +1295,81 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
       framePosition >= clip.startFrames && framePosition <= clip.endFrames
     );
     
-    if (activeClip) {
-      // Calculate clip frame: playhead position - clip start position
-      const clipFrame = Math.floor(framePosition - activeClip.startFrames);
-      
-      console.log('Extracting frame from clip:', { 
-        timelinePosition: framePosition,
-        clipStartFrames: activeClip.startFrames,
-        clipEndFrames: activeClip.endFrames,
-        clipFrame: clipFrame,
-        character: activeClip.character, 
-        filename: activeClip.filename
+    // Debug active clip selection
+    if (!isDraggingClip) {
+      console.log('🎬 ACTIVE CLIP DEBUG:', {
+        framePosition: framePosition,
+        activeClip: activeClip ? {
+          id: activeClip.id,
+          character: activeClip.character,
+          filename: activeClip.filename,
+          startFrames: activeClip.startFrames,
+          endFrames: activeClip.endFrames,
+          frameRate: activeClip.frameRate
+        } : null,
+        allClips: timelineClips.map(clip => ({
+          id: clip.id,
+          character: clip.character,
+          filename: clip.filename,
+          startFrames: clip.startFrames,
+          endFrames: clip.endFrames,
+          isActive: framePosition >= clip.startFrames && framePosition <= clip.endFrames
+        }))
       });
+    }
+    
+    if (activeClip) {
+      // Calculate raw clip frame: playhead position - clip start position (in timeline 60fps)
+      const rawClipFrame = framePosition - activeClip.startFrames;
+      
+      // Convert from timeline frame rate (60fps) to video frame rate
+      const videoFrameRate = activeClip.frameRate || 30; // Get actual frame rate or default to 30fps
+      const timelineFrameRate = 60; // Timeline is always 60fps
+      
+      // Convert timeline frames to video frames: (timelineFrame * videoFPS) / timelineFPS
+      let clipFrame = (rawClipFrame * videoFrameRate) / timelineFrameRate;
+      
+      // Clamp frame number to valid range (0 to video duration in frames)
+      const videoDurationFrames = Math.floor(activeClip.duration * videoFrameRate);
+      clipFrame = Math.max(0, Math.min(clipFrame, videoDurationFrames - 1));
+      
+      // Ensure frame number is a whole number (no decimals)
+      clipFrame = Math.floor(clipFrame);
+      
+      // Only log when not dragging to reduce spam
+      if (!isDraggingClip) {
+        console.log('🎬 FRAME EXTRACTION DEBUG:', { 
+          timelinePosition: framePosition,
+          clipStartFrames: activeClip.startFrames,
+          clipEndFrames: activeClip.endFrames,
+          rawClipFrame: rawClipFrame,
+          videoFrameRate: videoFrameRate,
+          timelineFrameRate: timelineFrameRate,
+          frameRateConversion: {
+            rawTimelineFrame: rawClipFrame,
+            conversionFormula: `(${rawClipFrame} * ${videoFrameRate}) / ${timelineFrameRate}`,
+            convertedFrame: (rawClipFrame * videoFrameRate) / timelineFrameRate,
+            afterClamping: clipFrame,
+            finalFrame: Math.floor(clipFrame)
+          },
+          videoDuration: activeClip.duration,
+          videoDurationFrames: videoDurationFrames,
+          character: activeClip.character, 
+          filename: activeClip.filename
+        });
+      }
       
       // Dispatch event to show the frame in preview (using direct streaming)
-      console.log('📤 Dispatching showFrame event:', {
-        character: activeClip.character,
-        filename: activeClip.filename,
-        frameNumber: clipFrame,
-        timelinePosition: framePosition,
-        clipStartFrames: activeClip.startFrames,
-        url: `http://localhost:5000/api/frame-direct/${activeClip.character}/${activeClip.filename}/${clipFrame}`
-      });
+      if (!isDraggingClip) {
+        console.log('📤 Dispatching showFrame event:', {
+          character: activeClip.character,
+          filename: activeClip.filename,
+          frameNumber: clipFrame,
+          timelinePosition: framePosition,
+          clipStartFrames: activeClip.startFrames,
+          url: `http://localhost:5000/api/frame-direct/${activeClip.character}/${activeClip.filename}/${clipFrame}`
+        });
+      }
       
       const event = new CustomEvent('showFrame', {
         detail: {
@@ -1259,7 +1382,10 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
       });
       window.dispatchEvent(event);
     } else {
-      console.log('No active clip at frame position:', framePosition);
+      // Only log when not dragging to reduce spam
+      if (!isDraggingClip) {
+        console.log('No active clip at frame position:', framePosition);
+      }
       // Dispatch event to show black frame or placeholder
       const event = new CustomEvent('showFrame', {
         detail: {
@@ -1275,12 +1401,13 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
 
   // Debug: Log prerender frame ranges when they change
   useEffect(() => {
-    if (prerenderAreas.length > 0) {
+    if (prerenderAreas.length > 0 && !isDraggingClip && timelineClips.length > 0) {
+      // Only log when clips are actually placed, not during drag operations
       console.log('Prerender frame ranges:', getPrerenderFrameRanges());
-      // Process prerender areas when clips change
+      // Process prerender areas when clips change (but not during drag operations)
       processPrerenderAreas();
     }
-  }, [prerenderAreas]);
+  }, [timelineClips.length, isDraggingClip]); // Watch timelineClips.length instead of prerenderAreas
 
   // Keep magneticPointsRef in sync with magneticPoints state
   useEffect(() => {
@@ -1493,6 +1620,7 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
             // Convert pixel position to time
             const startTime = pixelToTime(startPixel);
             
+            // Create clip with default frame rate, will be updated async
             const newClip = {
               id: baseId,
               // Don't spread clip to avoid overriding calculated properties
@@ -1506,8 +1634,16 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
               widthPixel: widthPixel,
               startFrames: constrainedPosition.startFrames,
               endFrames: constrainedPosition.endFrames,
-              durationFrames: durationInFrames
+              durationFrames: durationInFrames,
+              frameRate: 30 // Default frame rate, will be updated async
             };
+            
+            // Get actual video frame rate and update clip
+            getVideoFrameRate(clip.character, clip.filename).then(frameRate => {
+              setTimelineClips(prev => prev.map(c => 
+                c.id === newClip.id ? { ...c, frameRate } : c
+              ));
+            });
             
             setTimelineClips(prev => {
               const updatedClips = [...prev, newClip];
@@ -1526,6 +1662,12 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
               }));
               setTimelineClips(prev => [...prev, ...additionalClips]);
             }
+            
+            // Dispatch success event to ClipList to confirm clip placement
+            const successEvent = new CustomEvent('clipPlacementSuccess', {
+              detail: { clip: newClip }
+            });
+            window.dispatchEvent(successEvent);
           }
           }
         }
