@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { getAllClips, getVideoFile, generateThumbnail, getClipDuration, processPrerender, streamFrameDirect, getVideoInfo } = require('../controllers/fileController');
+const { getAllClips, getVideoFile, generateThumbnail, getClipDuration, processPrerender, streamFrameDirect, getVideoInfo, preExtractFrames } = require('../controllers/fileController');
 
 // GET /api/files
 router.get('/files', getAllClips);
@@ -24,6 +24,9 @@ router.get('/frame-direct/:character/:filename/:frameNumber', streamFrameDirect)
 
 // GET /api/video-info/:character/:filename - Get video metadata including frame rate
 router.get('/video-info/:character/:filename', getVideoInfo);
+
+// POST /api/pre-extract/:character/:filename - Pre-extract frames for timeline preview
+router.post('/pre-extract/:character/:filename', preExtractFrames);
 
 // Test endpoint
 router.get('/test', (req, res) => {
