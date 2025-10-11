@@ -257,12 +257,9 @@ function EditorLayout() {
                  overflow: 'hidden',
                  position: 'relative'
                }}>
-                 <TimelinePreview 
-                   clips={timelineClips}
-                   playheadPosition={playheadPosition}
-                   isPlaying={isPlaying}
-                   timelineClips={timelineClips}
-                 />
+                <TimelinePreview 
+                  timelineClips={timelineClips}
+                />
                </div>
       </div>
 

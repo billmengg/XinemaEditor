@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { logOnce } from '../utils/consoleDeduplication';
 
-export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTimelineClick }) {
+export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTimelineClick, onTimelineClipsChange, onPlayheadChange }) {
   const [activeTool, setActiveTool] = useState('cursor');
   const [videoTracks, setVideoTracks] = useState([1, 2, 3]);
   const [audioTracks, setAudioTracks] = useState([1]);
@@ -22,6 +22,13 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
   
   // Cache for pre-extraction timing
   const preExtractionCache = useRef(new Map());
+
+  // Notify parent component when timeline clips change
+  useEffect(() => {
+    if (onTimelineClipsChange && typeof onTimelineClipsChange === 'function') {
+      onTimelineClipsChange(timelineClips);
+    }
+  }, [timelineClips, onTimelineClipsChange]);
   
   // Clip-based thumbnail generation - Pre-render thumbnails tied to specific clips
   const generateClipThumbnails = async (character, filename, startFrame, endFrame, clipId) => {
