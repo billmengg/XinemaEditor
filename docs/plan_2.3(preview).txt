@@ -1,204 +1,239 @@
-# Preview Component Plan
+# Preview Component Plan 2.3.1 - Professional Timeline Preview System
 
 ## Overview
-The Preview component handles timeline playback, video display, and time controls. It provides the main viewing interface for the timeline content with playback controls and synchronization.
+The Preview component implements a professional-grade timeline preview system based on Adobe Premiere Pro and DaVinci Resolve. It features multi-level caching, hardware-accelerated frame extraction, and intelligent thumbnail generation for smooth timeline navigation.
 
 ## ✅ COMPLETED FEATURES
 - Basic Preview component structure
 - Preview panel integration in main layout
 - Preview placeholder content
+- Frame extraction system
+- Basic thumbnail generation
 
-## 🎯 MVP PREVIEW FEATURES (MINIMAL)
+## 🎯 PROFESSIONAL PREVIEW FEATURES
 
-### 1. **Timeline Playback**
-- **Play/Pause** button for timeline playback
-- **Sequential playback** of clips in timeline order
-- **Playhead synchronization** with timeline position
-- **Automatic clip switching** when playhead reaches clip boundaries
+### 1. **Multi-Level Timeline Preview**
+- **Frame-accurate thumbnails** extracted from video clips
+- **Progressive loading** based on visible timeline region
+- **Hardware-accelerated** frame extraction using FFmpeg
+- **Smart caching** with LRU eviction and memory management
+- **Real-time thumbnail updates** during timeline navigation
 
-### 2. **Video Display**
-- **Full-screen video player** for current clip
-- **Clip thumbnail display** when no clip is playing
-- **Video controls** (play, pause, seek, volume)
-- **Responsive video sizing** to fit preview area
+### 2. **Advanced Video Display**
+- **Timeline Preview Screen** showing current frame at playhead position
+- **Clip thumbnails** displayed in timeline tracks
+- **Frame-accurate seeking** with instant frame updates
+- **Zoom-responsive** thumbnail scaling
+- **Professional video player** interface for selected clips
 
-### 3. **Time Controls**
-- **Current time display** (MM:SS format)
-- **Timeline duration** display
-- **Playback speed** controls (0.5x, 1x, 2x)
-- **Frame-accurate seeking** (60fps precision)
+### 3. **Intelligent Caching System**
+- **Frame Cache**: High-performance frame storage with LRU eviction
+- **Thumbnail Cache**: Timeline-specific thumbnail sequences
+- **Preview Sequence Cache**: Pre-generated frame sequences
+- **Memory Management**: Automatic cleanup and size limiting
+- **Background Processing**: Non-blocking thumbnail generation
 
 ### 4. **Timeline Synchronization**
-- **Playhead position sync** with timeline
+- **Playhead position sync** with frame-accurate updates
 - **Clip selection sync** - preview shows selected clip
 - **Timeline updates** when clips are added/removed
 - **Real-time position updates** during playback
+- **Magnetic snapping** for precise positioning
 
-### 5. **Playback Controls**
-- **Play/Pause** toggle button
-- **Stop** button (return to timeline start)
-- **Previous/Next clip** navigation
-- **Seek to specific time** input
-- **Loop playback** toggle
+### 5. **Performance Optimization**
+- **GPU acceleration** for frame extraction
+- **Background processing** for thumbnail generation
+- **Smart memory management** with automatic cleanup
+- **Performance monitoring** with metrics and optimization
+- **Adaptive quality scaling** based on zoom level
 
 ## 🔧 TECHNICAL IMPLEMENTATION
 
 ### **Component Architecture**
 ```
 Preview.js
-├── VideoPlayer (main video display)
-├── PlaybackControls (play/pause/seek controls)
-├── TimeDisplay (current time, duration)
-├── SpeedControls (playback speed)
+├── TimelinePreview (main timeline preview display)
+├── TimelineClip (individual clip thumbnails)
+├── FrameExtractor (hardware-accelerated frame extraction)
+├── CacheManager (multi-level caching system)
+├── PerformanceMonitor (metrics and optimization)
+├── BackgroundProcessor (non-blocking thumbnail generation)
 └── TimelineSync (synchronization with timeline)
 ```
 
-### **MVP Data Structure**
+### **Professional Data Structure**
 ```javascript
 const previewData = {
-  currentClip: {
-    id: "VI.S1.E1.C14",
+  // Current frame at playhead position
+  currentFrame: {
     character: "Vi",
     filename: "VI.S1.E1.C14 Vi Gang Break Into Jayce's Lab.mp4",
-    startTime: 0,
-    duration: 5.2,
-    currentTime: 2.1
+    frameNumber: 1250,
+    timelinePosition: 20.8,
+    clipStartFrames: 0,
+    data: Buffer // Frame image data
   },
-  playback: {
-    playing: false,
-    speed: 1.0,
-    loop: false,
-    volume: 1.0
+  
+  // Timeline preview state
+  timelinePreview: {
+    visibleRegion: { start: 15.0, end: 25.0, center: 20.0 },
+    zoomLevel: 1.0,
+    thumbnails: Map, // Clip ID -> thumbnail sequence
+    loadingStates: Map, // Clip ID -> loading state
+    cacheHitRate: 0.85
   },
-  timeline: {
-    playhead: 0,
-    totalDuration: 15.6,
-    clips: [...]
+  
+  // Caching system
+  cache: {
+    frameCache: Map, // Frame key -> frame data
+    thumbnailCache: Map, // Clip ID -> thumbnail sequence
+    previewSequences: Map, // Clip key -> preview sequence
+    memoryUsage: 450000000, // bytes
+    maxSize: 1000,
+    expiryTime: 300000
+  },
+  
+  // Performance metrics
+  performance: {
+    thumbnailGenerationTime: [],
+    frameExtractionTime: [],
+    cacheHitRate: 0.85,
+    memoryUsage: 450000000,
+    backgroundTasks: 3
   }
 };
 ```
 
-### **MVP Key Functions**
-- `playTimeline()` - start timeline playback
-- `pauseTimeline()` - pause timeline playback
-- `stopTimeline()` - stop and reset to beginning
-- `seekToTime(time)` - jump to specific time
-- `setPlaybackSpeed(speed)` - change playback speed
-- `syncWithTimeline(timelineData)` - sync with timeline state
-- `loadClip(clip)` - load specific clip for preview
+### **Professional Key Functions**
+- `generateThumbnail(videoPath, frameNumber, frameRate)` - extract frame with GPU acceleration
+- `loadThumbnailsForRegion(startTime, endTime, clips)` - progressive loading
+- `calculateVisibleRegion(currentTime, zoomLevel, timelineWidth)` - region detection
+- `cleanupCache()` - intelligent memory management
+- `processBackgroundQueue()` - non-blocking processing
+- `syncWithTimeline(timelineData)` - frame-accurate synchronization
+- `updateTimelinePreview(playheadPosition)` - real-time updates
 
 ## 🎨 UI/UX DESIGN
 
-### **Preview Layout**
-- **Video Area**: Large video player (80% of space)
-- **Controls Bar**: Playback controls below video
-- **Time Display**: Current time and duration
-- **Speed Controls**: Playback speed adjustment
-- **Timeline Sync**: Visual connection to timeline
+### **Professional Preview Layout**
+- **Timeline Preview Screen**: 16:9 aspect ratio frame display (80% of space)
+- **Thumbnail Tracks**: Clip thumbnails displayed in timeline tracks
+- **Zoom Controls**: Timeline zoom adjustment controls
+- **Frame Information**: Current frame details and timing
+- **Performance Metrics**: Cache hit rate and memory usage display
 
-### **Visual Design**
-- **Video player**: Clean, modern video interface
-- **Control buttons**: Intuitive play/pause/seek buttons
-- **Time display**: Clear, readable time format
-- **Progress bar**: Visual playback progress
-- **Speed indicators**: Clear speed selection
+### **Professional Visual Design**
+- **Frame-accurate display**: Exact frame at playhead position
+- **Thumbnail quality**: High-quality thumbnails with proper scaling
+- **Zoom responsiveness**: Thumbnails scale with zoom level
+- **Loading indicators**: Clear loading states for thumbnails
+- **Error handling**: Graceful fallbacks for failed operations
 
 ### **Responsive Behavior**
-- **Video scaling**: Maintain aspect ratio
-- **Control sizing**: Touch-friendly controls
-- **Layout adaptation**: Responsive to window size
-- **Performance**: Smooth video playback
+- **Thumbnail scaling**: Dynamic sizing based on track height
+- **Zoom adaptation**: Responsive to timeline zoom level
+- **Memory management**: Automatic cleanup based on usage
+- **Performance optimization**: Smooth scrolling and frame updates
+- **Background processing**: Non-blocking thumbnail generation
 
 ## 🔮 FUTURE ENHANCEMENTS
 
-### **Advanced Playback Features**
-- **Frame-by-frame** navigation
+### **Advanced Preview Features**
+- **Frame-by-frame** navigation with keyboard shortcuts
 - **Slow motion** playback (0.25x, 0.5x)
 - **Fast forward** (2x, 4x, 8x)
-- **Audio waveform** display
-- **Video effects** preview
+- **Audio waveform** display alongside video
+- **Video effects** preview with real-time updates
+- **Color correction** preview
 
-### **Advanced Controls**
-- **Keyboard shortcuts** for playback
-- **Mouse wheel** seeking
-- **Touch gestures** for mobile
-- **Custom hotkeys** configuration
-- **Playback presets** (slow, normal, fast)
+### **Advanced Caching**
+- **Predictive caching** based on user behavior
+- **Distributed caching** for large projects
+- **Cloud storage** integration for cache
+- **Cache compression** for memory optimization
+- **Intelligent prefetching** of likely-needed frames
 
-### **Timeline Integration**
-- **Multi-track** playback
-- **Audio sync** with video
+### **Professional Integration**
+- **Multi-track** preview with synchronized playback
+- **Audio sync** with video tracks
 - **Transition effects** preview
 - **Export preview** functionality
 - **Real-time editing** feedback
+- **Collaborative preview** sharing
 
-## 📋 MVP IMPLEMENTATION PHASES
+## 📋 PROFESSIONAL IMPLEMENTATION PHASES
 
-### **Phase 1: Basic Playback (Week 1)**
-- Video player integration
-- Play/pause functionality
+### **Phase 1: Foundation (Week 1-2)**
+- Multi-level caching system implementation
+- Hardware-accelerated frame extraction
+- Basic timeline preview component
+- Progressive thumbnail loading
+
+### **Phase 2: Core Features (Week 3-4)**
+- Timeline preview with frame-accurate display
+- Thumbnail generation and caching
 - Timeline synchronization
-- Basic time display
+- Performance monitoring
 
-### **Phase 2: Advanced Controls (Week 2)**
-- Seek controls
-- Speed adjustment
-- Stop functionality
-- Clip navigation
-
-### **Phase 3: Polish & Testing (Week 3)**
-- UI/UX refinements
+### **Phase 3: Optimization (Week 5-6)**
+- Smart memory management
+- Background processing
 - Performance optimization
-- Error handling
-- User testing
+- Error handling and fallbacks
 
 ## 🎯 SUCCESS CRITERIA
 
-### **MVP Functional Requirements**
-- ✅ Play timeline clips in sequence
-- ✅ Pause and resume playback
-- ✅ Seek to specific times
-- ✅ Display current clip video
-- ✅ Sync with timeline playhead
-- ✅ Show playback controls
+### **Professional Functional Requirements**
+- ✅ Frame-accurate timeline preview
+- ✅ Multi-level caching system
+- ✅ Hardware-accelerated frame extraction
+- ✅ Progressive thumbnail loading
+- ✅ Real-time timeline synchronization
+- ✅ Professional-grade performance
 
-### **MVP Performance Requirements**
-- Smooth video playback (60fps)
-- Responsive controls
-- Fast seeking
-- Low memory usage
-- Quick clip switching
+### **Professional Performance Requirements**
+- Thumbnail generation: < 100ms per frame
+- Cache hit rate: > 80%
+- Memory usage: < 500MB for 1000 clips
+- Frame extraction: < 50ms per frame
+- Smooth timeline scrolling at 60fps
 
-### **MVP User Experience**
-- Intuitive playback controls
-- Clear time display
-- Responsive interface
-- Smooth synchronization
-- Professional video player feel
+### **Professional User Experience**
+- Premiere Pro/DaVinci Resolve quality performance
+- Instant thumbnail loading
+- Responsive timeline navigation
+- Professional video editing interface
+- Smooth frame-accurate seeking
 
 ## 🔗 INTEGRATION POINTS
 
 ### **With Timeline Component**
-- Playhead position synchronization
-- Clip selection updates
-- Timeline state changes
-- Playback control integration
+- Frame-accurate playhead synchronization
+- Clip selection updates with thumbnail display
+- Timeline state changes with preview updates
+- Magnetic snapping integration
 
 ### **With Media Library**
-- Video file loading
-- Clip metadata access
-- Thumbnail generation
-- File path resolution
+- Video file loading with metadata
+- Clip thumbnail generation and caching
+- File path resolution for frame extraction
+- Character-based organization
 
 ### **With Backend**
-- Video streaming
-- File serving
-- Metadata retrieval
-- Export preparation
+- Hardware-accelerated frame extraction
+- Multi-level caching system
+- Performance monitoring and optimization
+- Background processing queue
+
+### **With Cache System**
+- Frame cache management
+- Thumbnail cache optimization
+- Memory usage monitoring
+- Automatic cleanup and eviction
 
 ---
 
 **Status**: Ready for implementation
-**Priority**: High (Core MVP feature)
-**Estimated Time**: 2-3 weeks
-**Dependencies**: Timeline component, Media Library
+**Priority**: High (Professional-grade feature)
+**Estimated Time**: 6 weeks
+**Dependencies**: Timeline component, Media Library, Backend API, FFmpeg integration
