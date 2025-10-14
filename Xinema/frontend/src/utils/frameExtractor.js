@@ -164,7 +164,7 @@ class FrameExtractor {
   }
   
   // Extract single frame with hardware acceleration
-  async extractFrame(character, filename, frameNumber, frameRate = 30) {
+  async extractFrame(character, filename, frameNumber, frameRate = 24) {
     const timer = performanceMonitor.startTimer('frameExtraction');
     
     try {
@@ -226,7 +226,7 @@ class FrameExtractor {
       
       // Calculate frame range
       const duration = endTime || clip.duration || 10; // Default 10 seconds
-      const frameRate = 30; // Assume 30fps for now
+      const frameRate = 24; // Assume 24fps for now
       const totalFrames = Math.floor(duration * frameRate);
       
       // Generate thumbnails at intervals
@@ -300,7 +300,7 @@ class FrameExtractor {
     
     try {
       // Calculate exact frame number
-      const frameRate = 30; // Assume 30fps
+      const frameRate = 24; // Assume 24fps
       const rawFrame = timelinePosition - clipStartFrames;
       const exactFrameNumber = Math.round(rawFrame);
       

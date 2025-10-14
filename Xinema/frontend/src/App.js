@@ -120,6 +120,28 @@ function App() {
 // Editor Layout - Premiere Pro style 3-window setup with resizable panels
 function EditorLayout() {
   const [leftWidth, setLeftWidth] = React.useState(1200);
+  
+  // Listen for playback control events from Timeline
+  React.useEffect(() => {
+    const handleTimelineRequestPlay = (event) => {
+      const { startPosition } = event.detail;
+      console.log('🎬 App received timeline request play:', startPosition);
+      setIsPlaying(true);
+    };
+    
+    const handleTimelineRequestStop = () => {
+      console.log('🎬 App received timeline request stop');
+      setIsPlaying(false);
+    };
+    
+    window.addEventListener('timelineRequestPlay', handleTimelineRequestPlay);
+    window.addEventListener('timelineRequestStop', handleTimelineRequestStop);
+    
+    return () => {
+      window.removeEventListener('timelineRequestPlay', handleTimelineRequestPlay);
+      window.removeEventListener('timelineRequestStop', handleTimelineRequestStop);
+    };
+  }, []);
   const [timelineHeight, setTimelineHeight] = React.useState(400);
   const [clipPreviewWidth, setClipPreviewWidth] = React.useState(400);
   const [isResizing, setIsResizing] = React.useState(null);

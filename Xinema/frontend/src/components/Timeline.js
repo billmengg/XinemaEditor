@@ -8,6 +8,7 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
   const [contextMenu, setContextMenu] = useState(null);
   const [playheadPosition, setPlayheadPosition] = useState(0); // Frame position
   const [isDraggingPlayhead, setIsDraggingPlayhead] = useState(false);
+  const [isManualPlayheadChange, setIsManualPlayheadChange] = useState(false);
   const [dragStartPlayheadPosition, setDragStartPlayheadPosition] = useState(null); // Playhead position when drag starts
   const [timelineClips, setTimelineClips] = useState([]); // Clips placed on timeline
   const [dragPreview, setDragPreview] = useState(null); // Preview clip during drag
@@ -19,6 +20,7 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
   const [playheadAnimationFrame, setPlayheadAnimationFrame] = useState(null);
   const [lastThumbnailPosition, setLastThumbnailPosition] = useState(null); // Last thumbnail generation position
   const [isGeneratingThumbnail, setIsGeneratingThumbnail] = useState(false); // Thumbnail generation status
+  const [lastFrameExtractionTime, setLastFrameExtractionTime] = useState(0); // Last frame extraction time for debouncing
   
   // Cache for pre-extraction timing
   const preExtractionCache = useRef(new Map());
@@ -29,6 +31,103 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
       onTimelineClipsChange(timelineClips);
     }
   }, [timelineClips, onTimelineClipsChange]);
+
+  // Notify parent component when playhead position changes
+  useEffect(() => {
+    if (onPlayheadChange && typeof onPlayheadChange === 'function') {
+      onPlayheadChange(playheadPosition);
+    }
+    
+    // Also dispatch event for TimelinePreview to listen to
+    const event = new CustomEvent('playheadChange', {
+      detail: { 
+        playheadPosition,
+        isManualChange: isManualPlayheadChange
+      }
+    });
+    window.dispatchEvent(event);
+    
+    // Reset manual change flag after dispatching
+    if (isManualPlayheadChange) {
+      setIsManualPlayheadChange(false);
+    }
+  }, [playheadPosition, onPlayheadChange, isManualPlayheadChange]);
+
+  // Listen for showFrame events from TimelinePreview (during playback)
+  useEffect(() => {
+    const handleShowFrame = (event) => {
+      const { timelinePosition, isDragging } = event.detail;
+      
+      // Only update playhead if not manually dragging
+      if (timelinePosition !== undefined && !isDragging) {
+        // Update playhead position from showFrame event (for smooth visual feedback)
+        setPlayheadPosition(timelinePosition);
+        setSmoothPlayheadPosition(timelinePosition);
+      }
+    };
+    
+    window.addEventListener('showFrame', handleShowFrame);
+    return () => { window.removeEventListener('showFrame', handleShowFrame); };
+  }, []);
+
+  // Listen for playheadChange events from TimelinePreview (during playback)
+  useEffect(() => {
+    const handlePlayheadChange = (event) => {
+      const { playheadPosition } = event.detail;
+      
+    // Update playhead position
+    setPlayheadPosition(playheadPosition);
+    setSmoothPlayheadPosition(playheadPosition);
+    
+    // Automatically extract frame when playhead moves during playback
+    // This ensures frame preview works naturally with playback
+    extractSingleFrame(playheadPosition);
+    };
+    
+    window.addEventListener('playheadChange', handlePlayheadChange);
+    return () => { window.removeEventListener('playheadChange', handlePlayheadChange); };
+  }, [timelineClips]);
+
+  // Listen for playback control events from TimelinePreview
+  useEffect(() => {
+    const handleTimelineStartPlayback = (event) => {
+      const { startPosition, playbackSpeed = 1 } = event.detail;
+      
+      // eslint-disable-next-line no-console
+      console.log('🎬 Timeline received start playback event:', { startPosition, playbackSpeed });
+      
+      // Set the playback speed for the animation
+      window.playbackSpeed = playbackSpeed;
+      
+      // Dispatch event to parent component to set isPlaying to true
+      const playEvent = new CustomEvent('timelineRequestPlay', {
+        detail: { startPosition }
+      });
+      window.dispatchEvent(playEvent);
+      
+      // Update playhead position
+      if (onPlayheadChange) {
+        onPlayheadChange(startPosition);
+      }
+    };
+    
+    const handleTimelineStopPlayback = () => {
+      // eslint-disable-next-line no-console
+      console.log('🎬 Timeline received stop playback event');
+      
+      // Dispatch event to parent component to set isPlaying to false
+      const stopEvent = new CustomEvent('timelineRequestStop');
+      window.dispatchEvent(stopEvent);
+    };
+    
+    window.addEventListener('timelineStartPlayback', handleTimelineStartPlayback);
+    window.addEventListener('timelineStopPlayback', handleTimelineStopPlayback);
+    
+    return () => {
+      window.removeEventListener('timelineStartPlayback', handleTimelineStartPlayback);
+      window.removeEventListener('timelineStopPlayback', handleTimelineStopPlayback);
+    };
+  }, [onPlayheadChange]);
   
   // Clip-based thumbnail generation - Pre-render thumbnails tied to specific clips
   const generateClipThumbnails = async (character, filename, startFrame, endFrame, clipId) => {
@@ -228,6 +327,7 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
     if (relativeX >= 0 && relativeX <= actualMaxPosition) {
       // Convert pixel position to frame position
       const framePosition = pixelsToFramesSmooth(relativeX); // Use smooth conversion for playhead
+      setIsManualPlayheadChange(true); // Mark as manual change
       setPlayheadPosition(framePosition);
       setSmoothPlayheadPosition(framePosition); // Update smooth position too
       // Start dragging mode so the playhead follows the mouse
@@ -340,16 +440,19 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
       // Handle boundary cases
       if (relativeX < 0) {
         // Mouse is to the left of the timeline - set playhead to left edge
+        setIsManualPlayheadChange(true); // Mark as manual change
         setPlayheadPosition(0);
         setSmoothPlayheadPosition(0);
       } else if (relativeX > actualMaxPosition) {
         // Mouse is to the right of the timeline - set playhead to maximum time (10:00)
         const maxFramePosition = pixelsToFrames(actualMaxPosition);
+        setIsManualPlayheadChange(true); // Mark as manual change
         setPlayheadPosition(maxFramePosition);
         setSmoothPlayheadPosition(maxFramePosition);
       } else {
         // Mouse is within bounds - follow the mouse (convert to frames)
         const framePosition = pixelsToFramesSmooth(relativeX); // Use smooth conversion for playhead
+        setIsManualPlayheadChange(true); // Mark as manual change
         setPlayheadPosition(framePosition);
         setSmoothPlayheadPosition(framePosition); // Update smooth position too
       }
@@ -467,7 +570,7 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
             startFrames: constrainedPosition.startFrames,
             endFrames: constrainedPosition.endFrames,
             durationFrames: durationInFrames,
-            frameRate: 30 // Default frame rate, will be updated async
+            frameRate: 24 // Default frame rate, will be updated async
           };
           
           // Premiere Pro style: No bulk thumbnail generation - frames will be generated on-demand
@@ -583,12 +686,12 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
       const response = await fetch(`http://localhost:5000/api/video-info/${character}/${filename}`);
       if (response.ok) {
         const data = await response.json();
-        return data.frameRate || 30; // Default to 30fps if not found
+        return data.frameRate || 24; // Default to 24fps if not found
       }
     } catch (error) {
       console.error('Error getting video frame rate:', error);
     }
-    return 30; // Default fallback
+    return 24; // Default fallback
   };
 
   // Apply timeline boundary constraints to clip positions
@@ -1242,8 +1345,11 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
       const currentTime = Date.now();
       const elapsed = currentTime - startTime;
       
-      // Calculate frame-accurate position (backend priority)
-      const framesElapsed = Math.floor(elapsed / frameInterval);
+      // Get playback speed from TimelinePreview (default to 1x)
+      const playbackSpeed = window.playbackSpeed || 1;
+      
+      // Calculate frame-accurate position with speed multiplier
+      const framesElapsed = Math.floor((elapsed / frameInterval) * playbackSpeed);
       const newFramePosition = startFrame + framesElapsed;
       
       // Check if we've reached the end of timeline (10 minutes = 36,000 frames)
@@ -1257,8 +1363,8 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
       // Update frame-based position (discrete - backend priority)
       setPlayheadPosition(newFramePosition);
       
-      // Calculate smooth visual position for 60fps movement
-      const smoothFrames = startFrame + (elapsed / frameInterval);
+      // Calculate smooth visual position for 60fps movement with speed
+      const smoothFrames = startFrame + ((elapsed / frameInterval) * playbackSpeed);
       setSmoothPlayheadPosition(Math.min(smoothFrames, TIMELINE_TOTAL_FRAMES));
       
       // Continue animation at 60fps
@@ -1290,11 +1396,21 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
   }, [isPlaying]);
 
   // Extract frame when playhead moves (but only when clips are placed, not during drag operations)
+  // During playback, reduce frame extraction frequency to prevent conflicts with video seeking
   useEffect(() => {
     if (!isDraggingClip && !isDraggingPlayhead && timelineClips.length > 0) {
-      extractSingleFrame(smoothPlayheadPosition);
+      // During playback, only extract frames every few positions to reduce jitter
+      if (isPlaying) {
+        // Only extract frame every 4 frames during playback to reduce conflicts
+        if (Math.floor(smoothPlayheadPosition) % 4 === 0) {
+          extractSingleFrame(smoothPlayheadPosition);
+        }
+      } else {
+        // Normal frame extraction when not playing
+        extractSingleFrame(smoothPlayheadPosition);
+      }
     }
-  }, [smoothPlayheadPosition, isDraggingClip, isDraggingPlayhead, timelineClips.length]);
+  }, [smoothPlayheadPosition, isDraggingClip, isDraggingPlayhead, timelineClips.length, isPlaying]);
 
   // Automatic thumbnail generation during playhead dragging
   useEffect(() => {
@@ -1356,58 +1472,39 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
 
   // Extract single frame for immediate preview (optimized for smooth playhead movement)
   const extractSingleFrame = async (framePosition) => {
-    console.log('🎬 extractSingleFrame called:', { framePosition, timelineClipsLength: timelineClips.length });
-    
     // Only process if there are clips on the timeline
     if (timelineClips.length === 0) {
-      console.log('⚠️ No clips on timeline, skipping frame extraction');
       return;
+    }
+    
+    // During playback, debounce frame extraction to prevent conflicts with video seeking
+    if (isPlaying) {
+      const now = Date.now();
+      const timeSinceLastExtraction = now - lastFrameExtractionTime;
+      const minExtractionInterval = 50; // 50ms minimum between extractions during playback
+      
+      if (timeSinceLastExtraction < minExtractionInterval) {
+        return; // Skip this extraction to prevent jitter
+      }
+      
+      setLastFrameExtractionTime(now);
     }
     
     // Ensure frame position is on frame grid
     const gridAlignedPosition = Math.round(framePosition);
-    console.log('🎯 Grid aligned position:', gridAlignedPosition);
     
     // Find which clip is active at this frame position (optimized)
     const activeClip = timelineClips.find(clip => 
       gridAlignedPosition >= clip.startFrames && gridAlignedPosition <= clip.endFrames
     );
     
-    console.log('🔍 Active clip search:', { 
-      gridAlignedPosition, 
-      timelineClips: timelineClips.map(c => ({ 
-        character: c.character, 
-        filename: c.filename, 
-        startFrames: c.startFrames, 
-        endFrames: c.endFrames,
-        id: c.id,
-        track: c.track
-      })),
-      activeClip: activeClip ? { character: activeClip.character, filename: activeClip.filename } : null
-    });
-    
     if (activeClip) {
       // Use the same calculation as the debug panel - raw clip frame in timeline 60fps
       const clipFrame = Math.floor(gridAlignedPosition - activeClip.startFrames);
       
-      console.log('🎯 Using debug panel calculation:', {
-        gridAlignedPosition,
-        clipStartFrames: activeClip.startFrames,
-        clipFrame,
-        calculation: `${gridAlignedPosition} - ${activeClip.startFrames} = ${clipFrame}`
-      });
-      
-      // Optimized - no debug logging during drag for smooth movement
+      // Found active clip (no logging to reduce spam)
       
       // Dispatch event to show the frame in preview
-      console.log('📤 Dispatching showFrame event:', {
-        character: activeClip.character,
-        filename: activeClip.filename,
-        frameNumber: clipFrame,
-        timelinePosition: gridAlignedPosition,
-        clipStartFrames: activeClip.startFrames,
-        calculation: `${gridAlignedPosition} - ${activeClip.startFrames} = ${clipFrame}`
-      });
       
       const event = new CustomEvent('showFrame', {
         detail: {
@@ -1415,14 +1512,16 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
           filename: activeClip.filename,
           frameNumber: clipFrame,
           timelinePosition: gridAlignedPosition, // Use grid-aligned position
-          clipStartFrames: activeClip.startFrames
+          clipStartFrames: activeClip.startFrames,
+          isDragging: isDraggingPlayhead
         }
       });
       window.dispatchEvent(event);
     } else {
-      // Only log when not dragging to reduce spam
-      if (!isDraggingClip) {
-        console.log('No active clip at frame position:', gridAlignedPosition);
+      // Only log occasionally when no clip found
+      if (!isDraggingClip && gridAlignedPosition % 100 === 0) {
+        // eslint-disable-next-line no-console
+        console.log('❌ No clip at frame:', gridAlignedPosition);
       }
       // Dispatch event to show black frame or placeholder
       const event = new CustomEvent('showFrame', {
@@ -1430,7 +1529,8 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
           character: null,
           filename: null,
           frameNumber: null,
-          timelinePosition: gridAlignedPosition // Use grid-aligned position
+          timelinePosition: gridAlignedPosition, // Use grid-aligned position
+          isDragging: isDraggingPlayhead
         }
       });
       window.dispatchEvent(event);
@@ -1673,7 +1773,7 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
               startFrames: constrainedPosition.startFrames,
               endFrames: constrainedPosition.endFrames,
               durationFrames: durationInFrames,
-              frameRate: 30 // Default frame rate, will be updated async
+              frameRate: 24 // Default frame rate, will be updated async
             };
             
             // Premiere Pro style: No bulk thumbnail generation - frames will be generated on-demand
