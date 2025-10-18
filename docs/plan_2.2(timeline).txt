@@ -1,61 +1,165 @@
-# Timeline Component Plan
+# Plan 2.2: Timeline Component
 
-## Overview
-The Timeline component is the core editing interface where users arrange clips into a sequential video sequence. It provides drag-and-drop functionality, clip manipulation, and playback controls.
+## 📋 **Overview**
+The Timeline component is the core editing interface where users arrange clips into a sequential video sequence. It provides drag-and-drop functionality, clip manipulation, magnetic snapping, and playback controls for professional video editing workflows.
 
-## ✅ COMPLETED FEATURES
-- ✅ Basic Timeline component structure
-- ✅ Timeline panel integration in main layout
-- ✅ Timeline placeholder content
-- ✅ Multi-track timeline with video/audio tracks
-- ✅ Drag-and-drop from Media Library to timeline
-- ✅ Timeline clips with visual representation
-- ✅ Playhead with draggable functionality
-- ✅ Time ruler with markers (0-10 minutes)
-- ✅ Magnetic snapping system for clips
-- ✅ Timeline clip dragging with preview
-- ✅ Clip selection and highlighting
-- ✅ Timeline boundary constraints
-- ✅ Magnetic point system (borders, clips, playhead)
-- ✅ Drag preview with magnetism
-- ✅ Old magnetic point removal during drag
-- ✅ Clip removal with backspace key
+---
 
-## 🎯 V0 TIMELINE FEATURES (CORE CLIP MAKER)
+## ✅ **COMPLETED FEATURES**
 
-### 1. **Basic Timeline Structure**
-- ✅ **Horizontal timeline** with simple time ruler
-- ✅ **Multi-track timeline** for video clips (3 video tracks, 1 audio track)
-- ✅ **Basic scrollable timeline** (horizontal scroll only)
-- ✅ **Time markers** (0-10 minutes with major markers)
+### **Core Implementation**
+- ✅ **Basic Timeline Structure** - Horizontal timeline with multi-track support
+- ✅ **Drag-and-Drop Integration** - Seamless clip transfer from Media Library
+- ✅ **Magnetic Snapping System** - Professional-grade clip alignment
+- ✅ **Playhead System** - Draggable playhead with position tracking
+- ✅ **Track Priority Logic** - Highest track clips display when overlapping
 
-### 2. **Core Clip Management**
-- ✅ **Drag-and-drop** clips from Media Library to timeline
-- ✅ **Basic clip blocks** showing clip name and duration
-- ✅ **Sequential clip arrangement** (one after another)
-- ✅ **Remove clips** from timeline (backspace key)
+### **Technical Features**
+- ✅ **Multi-Track Timeline** - 3 video tracks, 1 audio track support
+- ✅ **Timeline Boundary Constraints** - Proper clip positioning limits
+- ✅ **Magnetic Point System** - Borders, clips, and playhead snapping
+- ✅ **Event-Driven Architecture** - Clean component communication
+- ✅ **Frame-Accurate Positioning** - 60fps timeline precision
 
-### 3. **Essential Interactions**
-- ✅ **Clip reordering** - drag to move clips left/right
-- ✅ **Basic clip selection** (click to select)
-- ✅ **Simple timeline navigation** (click to seek)
+### **User Interface**
+- ✅ **Visual Clip Representation** - Rounded rectangles with thumbnails
+- ✅ **Selection and Highlighting** - Clear visual feedback for interactions
+- ✅ **Time Ruler** - 0-10 minutes with major/minor markers
+- ✅ **Responsive Design** - Smooth horizontal scrolling and resizing
+- ✅ **Professional Styling** - Industry-standard video editing interface
 
+---
 
-## 🔧 TECHNICAL IMPLEMENTATION
+## 🎯 **MVP FEATURES (V0) - COMPLETED**
 
-### **Component Architecture**
+### **1. Core Timeline Structure**
+- ✅ **Horizontal Timeline** - Multi-track timeline with video/audio tracks
+- ✅ **Drag-and-Drop Integration** - Seamless clip transfer from Media Library
+- ✅ **Magnetic Snapping System** - Professional-grade clip alignment
+- ✅ **Playhead System** - Draggable playhead with position tracking
+- ✅ **Track Priority Logic** - Highest track clips display when overlapping
+
+### **2. Essential Interactions**
+- ✅ **Clip Reordering** - Drag to move clips left/right
+- ✅ **Basic Clip Selection** - Click to select clips
+- ✅ **Simple Timeline Navigation** - Click to seek timeline
+- ✅ **Clip Removal** - Remove clips from timeline (backspace key)
+- ✅ **Timeline Boundary Constraints** - Proper clip positioning limits
+
+### **3. Visual Design**
+- ✅ **Clip Blocks** - Rounded rectangles with thumbnails
+- ✅ **Track Colors** - Different colors for video/audio tracks
+- ✅ **Selection** - Highlighted borders for selected clips
+- ✅ **Hover Effects** - Visual feedback on clip interaction
+- ✅ **Time Ruler** - 0-10 minutes with major/minor markers
+
+---
+
+## 🚀 **FUTURE ADVANCED FEATURES (V1+)**
+
+### **Timeline Controls & Navigation**
+- [ ] **Playback Controls**
+  - [ ] Play/pause timeline clips in sequence
+  - [ ] Real-time video display of current clip
+  - [ ] Timeline scrubbing with video preview
+  - [ ] Keyboard shortcuts for playback
+
+- [ ] **Timeline Navigation**
+  - [ ] Zoom controls (0.5x to 4x)
+  - [ ] Pan timeline (middle mouse drag)
+  - [ ] Go to start/end functionality
+  - [ ] Frame-accurate seeking
+
+### **Advanced Clip Management**
+- [ ] **Clip Properties Panel**
+  - [ ] Start time (frames/seconds)
+  - [ ] End time (frames/seconds)
+  - [ ] Duration display
+  - [ ] Track assignment
+  - [ ] Speed multiplier
+
+- [ ] **Clip Operations**
+  - [ ] Copy/paste clips
+  - [ ] Duplicate clips
+  - [ ] Group clip operations
+  - [ ] Batch clip management
+
+### **Timeline Enhancements**
+- [ ] **Grid Lines**
+  - [ ] Subtle grid for alignment reference
+  - [ ] Snap to grid functionality
+  - [ ] Customizable grid intervals
+  - [ ] Visual alignment guides
+
+- [ ] **Timeline Markers**
+  - [ ] Add markers at playhead position
+  - [ ] Marker labels and colors
+  - [ ] Jump to marker functionality
+  - [ ] Export markers with project
+
+### **Professional Features**
+- [ ] **Multi-Track Editing**
+  - [ ] Multiple video layers with opacity controls
+  - [ ] Blend modes for video tracks
+  - [ ] Track locking and solo functionality
+  - [ ] Advanced track management
+
+- [ ] **Keyframe Animation**
+  - [ ] Clip property keyframes
+  - [ ] Bezier curve editing
+  - [ ] Animation presets
+  - [ ] Timeline-based animation
+
+### **Advanced Timeline Tools**
+- [ ] **Timeline Regions**
+  - [ ] Group clips into sections
+  - [ ] Collapse/expand regions
+  - [ ] Region-based operations
+  - [ ] Timeline organization
+
+- [ ] **Advanced Snapping**
+  - [ ] Custom snap points
+  - [ ] Magnetic strength adjustment
+  - [ ] Snap to audio waveforms
+  - [ ] Smart snapping algorithms
+
+### **Collaboration Features**
+- [ ] **Timeline Sharing**
+  - [ ] Share timeline with others
+  - [ ] Version control for timelines
+  - [ ] Comments on timeline positions
+  - [ ] Real-time collaborative editing
+
+---
+
+## 🔧 **TECHNICAL IMPLEMENTATION**
+
+### **Architecture**
 ```
 Timeline.js
-├── TimelineHeader (time ruler, zoom controls)
-├── TimelineTracks (clip tracks)
-│   ├── VideoTrack (main video clips)
-│   └── AudioTrack (future audio support)
-├── TimelinePlayhead (current position indicator)
-├── TimelineControls (playback controls)
-└── TimelineClip (individual clip representation)
+├── TimelineHeader
+│   ├── TimeRuler
+│   ├── ZoomControls
+│   └── MarkerDisplay
+├── TimelineTracks
+│   ├── VideoTrack (3 tracks)
+│   │   ├── TimelineClip
+│   │   └── ClipProperties
+│   └── AudioTrack (1 track)
+│       ├── AudioClip
+│       └── WaveformDisplay
+├── TimelinePlayhead
+│   ├── PlayheadLine
+│   └── PositionIndicator
+├── TimelineControls
+│   ├── PlaybackControls
+│   └── NavigationControls
+└── MagneticSystem
+    ├── MagneticPoints
+    └── SnappingLogic
 ```
 
-### **MVP Data Structure**
+### **Data Structure**
 ```javascript
 const timelineData = {
   clips: [
@@ -63,140 +167,218 @@ const timelineData = {
       id: "VI.S1.E1.C14",
       character: "Vi",
       filename: "VI.S1.E1.C14 Vi Gang Break Into Jayce's Lab.mp4",
-      startTime: 0,        // seconds from timeline start
-      duration: 5.2,      // clip duration in seconds
-      selected: false     // selection state
+      startFrames: 0,
+      endFrames: 312,
+      track: 1,
+      selected: false,
+      properties: {
+        speed: 1.0,
+        opacity: 1.0,
+        volume: 1.0
+      }
     }
   ],
-  playhead: 0,           // current playhead position
-  playing: false          // playback state
+  playheadPosition: 0,
+  smoothPlayheadPosition: 0,
+  isPlaying: false,
+  zoomLevel: 1.0,
+  markers: []
 };
 ```
 
-### **MVP Key Functions**
-- ✅ `addClipToTimeline(clip)` - add clip from media library
-- ✅ `removeClipFromTimeline(clipId)` - remove clip from timeline (backspace key)
-- ✅ `moveClip(clipId, newStartTime)` - reposition clip
-- ✅ `seekTimeline(time)` - jump to specific time
-
-## 🎨 UI/UX DESIGN
-
-### **Timeline Layout**
-- ✅ **Header**: Time ruler with major/minor tick marks
-- ✅ **Tracks**: Horizontal tracks for different media types
-- ✅ **Clips**: Visual blocks showing clip thumbnails and duration
-- ✅ **Playhead**: Vertical line indicating current position
-- ❌ **Controls**: Playback controls below timeline - NOT YET IMPLEMENTED
-
-### **Visual Design**
-- ✅ **Clip blocks**: Rounded rectangles with thumbnails
-- ✅ **Track colors**: Different colors for video/audio tracks
-- ✅ **Selection**: Highlighted borders for selected clips
-- ✅ **Hover effects**: Visual feedback on clip interaction
-- ❌ **Grid lines**: Subtle grid for alignment reference - NOT YET IMPLEMENTED
-
-### **Responsive Behavior**
-- ✅ **Scroll behavior**: Smooth horizontal scrolling
-- ✅ **Clip sizing**: Minimum/maximum clip widths
-- ❌ **Touch support**: Mobile-friendly drag interactions - NOT YET IMPLEMENTED
-
-## 🔮 FUTURE ENHANCEMENTS
-
-### **V0.5 - AI-Enhanced Features**
-- **AI clip suggestions** - smart clip recommendations
-- **Script-based timeline generation** - auto-create timelines from scripts
-- **Smart clip matching** - AI-powered clip-to-script matching
-- **Timeline optimization** - AI-suggested improvements
-
-### **V1 - Advanced Timeline Features**
-- **Multiple tracks** - separate video/audio tracks
-- **Track layers** - overlay multiple clips
-- **Keyframe animation** - clip property keyframes
-- **Timeline markers** - bookmark important positions
-- **Timeline regions** - group clips into sections
-- **Timeline templates** - save/load timeline layouts
-
-### **V1 - Advanced Editing**
-- **Professional clip trimming** - advanced in/out point tools
-- **Advanced clip splitting** - multiple cut points
-- **Clip merging** - combine adjacent clips
-- **Clip effects** - professional video effects
-- **Transitions** - crossfade between clips
-- **Audio sync** - synchronize audio with video
-- **Color correction** - professional color grading
-- **Video filters** - advanced visual effects
-
-### **Collaboration Features**
-- **Timeline sharing** - share timeline with others
-- **Version control** - timeline version history
-- **Comments** - add notes to timeline positions
-- **Real-time editing** - collaborative timeline editing
-
-## 📋 V0 IMPLEMENTATION PHASES
-
-### **Phase 1: Basic Timeline (Week 2)**
-- Timeline component structure
-- Drag-and-drop from Media Library
-- Basic clip representation
-- Magnetic snapping system
-- Timeline state management
-
-### **Phase 2: Core Interactions (Week 3)**
-- Clip selection and highlighting
-- Clip moving and reordering
-- Basic timeline navigation
-- Clip removal functionality
-- Timeline boundary constraints
-
-### **Phase 3: Polish & Testing (Week 4)**
-- UI/UX refinements
-- Performance optimization
-- Error handling and testing
-- Documentation
-
-## 🎯 SUCCESS CRITERIA
-
-### **V0 Functional Requirements**
-- ✅ Drag clips from Media Library to Timeline
-- ✅ Arrange clips in sequential order
-- ✅ Remove clips from timeline (backspace key)
-- ✅ Basic timeline navigation (seek, play/pause)
-
-### **V0 Performance Requirements**
-- ✅ Handle 50+ clips in timeline smoothly
-- ✅ Responsive drag-and-drop interactions
-- ✅ Basic timeline scrolling
-
-### **V0 User Experience**
-- ✅ Intuitive drag-and-drop workflow
-- ✅ Clear visual feedback for interactions
-- ✅ Easy clip selection and manipulation
-- ✅ Consistent UI with rest of application
-
-## 🔗 INTEGRATION POINTS
-
-### **With Media Library**
-- ✅ Drag-and-drop clip transfer
-- ✅ Clip metadata synchronization
-- ✅ Clip thumbnail display
-- ✅ Clip selection state
-
-### **With Preview Component**
-- ❌ Timeline playback preview - NOT YET IMPLEMENTED
-- ✅ Clip preview on selection
-- ✅ Playhead position synchronization
-- ❌ Preview controls integration - NOT YET IMPLEMENTED
-
-### **With Backend**
-- ❌ Timeline data persistence - NOT YET IMPLEMENTED
-- ✅ Clip metadata retrieval
-- ❌ Export functionality - NOT YET IMPLEMENTED
-- ❌ Project save/load - NOT YET IMPLEMENTED
+### **Key Functions**
+- `addClipToTimeline(clip)` - Add clip from media library
+- `removeClipFromTimeline(clipId)` - Remove clip from timeline
+- `moveClip(clipId, newStartFrames)` - Reposition clip
+- `seekTimeline(framePosition)` - Jump to specific frame
+- `applyMagnetism(position, snapThreshold)` - Apply magnetic snapping
 
 ---
 
-**Status**: Core timeline features implemented
-**Priority**: High (Core V0 feature)
-**Estimated Time**: 4 weeks (V0 complete)
+## 🎨 **UI/UX DESIGN**
+
+### **Layout Structure**
+- **Header** - Time ruler with major/minor tick marks
+- **Tracks** - Horizontal tracks for different media types
+- **Clips** - Visual blocks showing clip thumbnails and duration
+- **Playhead** - Vertical line indicating current position
+- **Controls** - Playback controls below timeline
+
+### **Visual Design**
+- **Clip Blocks** - Rounded rectangles with thumbnails
+- **Track Colors** - Different colors for video/audio tracks
+- **Selection** - Highlighted borders for selected clips
+- **Hover Effects** - Visual feedback on clip interaction
+- **Grid Lines** - Subtle grid for alignment reference
+
+### **User Interactions**
+- **Drag & Drop** - Move clips within timeline
+- **Resize Clips** - Adjust clip duration by dragging edges
+- **Click to Select** - Select clips and seek timeline
+- **Keyboard Shortcuts** - Quick navigation and operations
+
+---
+
+## 📋 **IMPLEMENTATION PHASES**
+
+### **Phase 1: Core Timeline (Week 2)**
+1. Timeline component structure
+2. Drag-and-drop from Media Library
+3. Basic clip representation
+4. Magnetic snapping system
+5. Timeline state management
+
+### **Phase 2: Core Interactions (Week 3)**
+1. Clip selection and highlighting
+2. Clip moving and reordering
+3. Basic timeline navigation
+4. Clip removal functionality
+5. Timeline boundary constraints
+
+### **Phase 3: Polish & Testing (Week 4)**
+1. UI/UX refinements
+2. Performance optimization
+3. Error handling and testing
+4. Documentation
+5. Integration testing
+
+---
+
+## 🎯 **SUCCESS CRITERIA**
+
+### **MVP Success Criteria**
+- [ ] Drag clips from Media Library to Timeline
+- [ ] Arrange clips in sequential order
+- [ ] Remove clips from timeline
+- [ ] Basic timeline navigation (seek, play/pause)
+- [ ] Magnetic snapping works smoothly
+- [ ] Track priority logic functions correctly
+
+### **Performance Requirements**
+- [ ] Handle 50+ clips in timeline smoothly
+- [ ] Responsive drag-and-drop interactions
+- [ ] Smooth timeline scrolling
+- [ ] Real-time preview during editing
+- [ ] Frame-accurate positioning
+
+### **User Experience Goals**
+- [ ] Intuitive drag-and-drop workflow
+- [ ] Clear visual feedback for interactions
+- [ ] Easy clip selection and manipulation
+- [ ] Consistent UI with rest of application
+- [ ] Professional video editing experience
+
+---
+
+## 🔗 **INTEGRATION POINTS**
+
+### **With Media Library**
+- [ ] Drag-and-drop clip transfer
+- [ ] Clip metadata synchronization
+- [ ] Clip thumbnail display
+- [ ] Clip selection state
+
+### **With Preview Component**
+- [ ] Timeline playback preview
+- [ ] Clip preview on selection
+- [ ] Playhead position synchronization
+- [ ] Preview controls integration
+
+### **With Backend**
+- [ ] Timeline data persistence
+- [ ] Clip metadata retrieval
+- [ ] Export functionality
+- [ ] Project save/load
+
+---
+
+## 🔧 **TECHNICAL CONSIDERATIONS**
+
+### **Performance Requirements**
+- Handle 1000+ clips smoothly
+- Real-time preview during editing
+- Efficient magnetic snapping calculations
+- Fast timeline rendering
+- Responsive UI during operations
+
+### **Data Management**
+- Clip metadata preservation
+- Timeline state management
+- Magnetic point calculations
+- Event system coordination
+- Memory optimization
+
+### **User Experience**
+- Intuitive tool selection
+- Clear visual feedback
+- Consistent keyboard shortcuts
+- Contextual help system
+- Error handling and recovery
+
+---
+
+## 📊 **METRICS & MONITORING**
+
+### **Key Performance Indicators**
+- **Timeline Responsiveness** - <16ms for 60fps updates
+- **Drag Performance** - Smooth dragging with <5ms lag
+- **Memory Usage** - <50MB for typical project
+- **Snapping Accuracy** - Frame-perfect alignment
+
+### **Success Metrics**
+- **User Workflow Efficiency** - Time to complete common tasks
+- **Feature Adoption** - Usage of advanced features
+- **Error Rate** - Frequency of user errors
+- **Performance Satisfaction** - User feedback on speed
+
+---
+
+## 🔮 **FUTURE ENHANCEMENTS**
+
+### **Short-term (V0.5)**
+- AI clip suggestions
+- Script-based timeline generation
+- Smart clip matching
+- Timeline optimization
+
+### **Long-term (V1+)**
+- Professional clip trimming
+- Advanced clip splitting
+- Clip effects and transitions
+- Audio sync tools
+- Color correction
+- Video filters
+
+---
+
+## 📝 **NOTES & CONSIDERATIONS**
+
+### **Dependencies**
+- Media Library component
+- Preview component
+- Backend timeline persistence
+- Video processing libraries
+
+### **Risks & Mitigation**
+- **Performance with Large Projects** - Implement virtual scrolling and optimization
+- **Memory Usage** - Use efficient data structures and cleanup
+- **Complex Interactions** - Implement robust event handling
+- **User Confusion** - Provide clear visual feedback and help
+
+### **Open Questions**
+- How to handle very long timelines?
+- What level of magnetic snapping is optimal?
+- How to balance features with performance?
+- What keyboard shortcuts are most important?
+
+---
+
+**Status**: MVP V0 complete, V1 features in development
+**Priority**: Medium (V0 complete, V1 features)
+**Estimated Time**: 6 weeks (V1 features)
 **Dependencies**: Media Library, Preview components
-**Next Phase**: Video editing, playback, and export (V1)
+**Next Phase**: Advanced timeline controls and professional features
+
+---
+
+*This plan provides a comprehensive roadmap for implementing a professional timeline component, with clear phases, success criteria, and technical considerations.*

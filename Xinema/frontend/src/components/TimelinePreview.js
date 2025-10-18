@@ -100,17 +100,24 @@ const TimelinePreview = ({
     // Use clip duration if available, otherwise use provided videoDuration
     const actualVideoDuration = activeClip && activeClip.duration ? activeClip.duration : videoDuration;
     
-    // eslint-disable-next-line no-console
-    console.log('🔢 CONVERSION DEBUG:', {
-      timelinePosition,
-      clipStartFrames,
-      clipEndFrames,
-      videoDuration: actualVideoDuration,
-      isBeforeClip: timelinePosition < clipStartFrames,
-      isAfterClip: timelinePosition > clipEndFrames,
-      isInRange: timelinePosition >= clipStartFrames && timelinePosition <= clipEndFrames,
-      clipHasDuration: !!(activeClip && activeClip.duration)
-    });
+    // Only log conversion debug if we haven't already logged for this position recently
+    const lastConversionLog = window.lastConversionLog || 0;
+    const shouldLog = Math.abs(timelinePosition - lastConversionLog) >= 1; // Only log if position changed by at least 1 frame
+    
+    if (shouldLog) {
+      // eslint-disable-next-line no-console
+      console.log('🔢 CONVERSION DEBUG:', {
+        timelinePosition,
+        clipStartFrames,
+        clipEndFrames,
+        videoDuration: actualVideoDuration,
+        isBeforeClip: timelinePosition < clipStartFrames,
+        isAfterClip: timelinePosition > clipEndFrames,
+        isInRange: timelinePosition >= clipStartFrames && timelinePosition <= clipEndFrames,
+        clipHasDuration: !!(activeClip && activeClip.duration)
+      });
+      window.lastConversionLog = timelinePosition;
+    }
     
     // DEBUG: Will check conversion result later
     
@@ -129,15 +136,18 @@ const TimelinePreview = ({
     const relativeFrames = timelinePosition - clipStartFrames;
     const relativeTime = relativeFrames / timelineFrameRate;
     
-    // Ensure we don't exceed video duration and seek to a more noticeable time for testing
-    const finalTime = Math.min(Math.max(relativeTime, 1.0), actualVideoDuration); // At least 1 second for testing
+    // Ensure we don't exceed video duration
+    const finalTime = Math.min(Math.max(relativeTime, 0), actualVideoDuration);
     
-    // eslint-disable-next-line no-console
-    console.log('✅ CONVERSION SUCCESS:', {
-      relativeFrames,
-      relativeTime: relativeTime.toFixed(2),
-      finalTime: finalTime.toFixed(2)
-    });
+    // Only log success if we haven't already logged for this position recently
+    if (shouldLog) {
+      // eslint-disable-next-line no-console
+      console.log('✅ CONVERSION SUCCESS:', {
+        relativeFrames,
+        relativeTime: relativeTime.toFixed(2),
+        finalTime: finalTime.toFixed(2)
+      });
+    }
     
     // DEBUG: Check if the conversion makes sense
     if (finalTime < 0 || finalTime > actualVideoDuration) {
@@ -214,10 +224,14 @@ const TimelinePreview = ({
       return;
     }
     
-    // Find active clip at this timeline position
-    const activeClip = timelineClips.find(clip => 
-      timelinePosition >= clip.startFrames && timelinePosition <= clip.endFrames
+    // Find all clips at this timeline position and select the one on the highest track
+    const overlappingClips = timelineClips.filter(clip => 
+      timelinePosition >= (clip.instanceStartFrames ?? clip.startFrames) && 
+      timelinePosition <= (clip.instanceEndFrames ?? clip.endFrames)
     );
+    const activeClip = overlappingClips.length > 0 
+      ? overlappingClips.sort((a, b) => b.track - a.track)[0]
+      : null;
     
     // Use clip duration from timeline instead of video element duration
     const clipDuration = activeClip ? 
@@ -303,7 +317,21 @@ const TimelinePreview = ({
         // Seek if difference is significant or video is ready
         // During playback, be more aggressive about seeking to reduce jitter
         const seekThreshold = isDuringPlayback ? 0.02 : 0.05; // 20ms during playback, 50ms otherwise
-        if (timeDifference > seekThreshold || videoRef.current.readyState >= 2) {
+        
+        // Additional check: only seek if we haven't already sought to this position recently
+        const lastSeekPosition = window.lastSeekPosition || 0;
+        const lastSeekTime = window.lastSeekTime || 0;
+        const positionThreshold = 1; // Only seek if timeline position changed by at least 1 frame
+        const timeThreshold = 100; // Only seek if at least 100ms have passed since last seek
+        
+        const shouldSeek = (timeDifference > seekThreshold || 
+          (videoRef.current.readyState >= 2 && Math.abs(timelinePosition - lastSeekPosition) >= positionThreshold)) &&
+          (now - lastSeekTime) >= timeThreshold;
+        
+        if (shouldSeek) {
+          // Update the last seek position and time
+          window.lastSeekPosition = timelinePosition;
+          window.lastSeekTime = now;
           if (videoRef.current) {
             const oldTime = videoRef.current.currentTime;
             videoRef.current.currentTime = videoTime;
@@ -351,6 +379,21 @@ const TimelinePreview = ({
       if (window.lastShowFrameEvent && currentClip) {
         // eslint-disable-next-line no-console
         console.log('🔄 No active clip found, trying fallback seek:', window.lastShowFrameEvent);
+        
+        // Check if timeline position is within the actual clip boundaries
+        const isWithinClip = timelinePosition >= window.lastShowFrameEvent.clipStartFrames && 
+                            timelinePosition <= window.lastShowFrameEvent.clipEndFrames;
+        
+        if (!isWithinClip) {
+          // eslint-disable-next-line no-console
+          console.log('❌ Timeline position outside clip boundaries, not seeking:', {
+            timelinePosition,
+            clipRange: `${window.lastShowFrameEvent.clipStartFrames}-${window.lastShowFrameEvent.clipEndFrames}`
+          });
+          // eslint-disable-next-line no-console
+          console.groupEnd();
+          return;
+        }
         
         // Use stored clip data for seeking
         const videoTime = convertTimelineToVideoTime(
@@ -412,20 +455,37 @@ const TimelinePreview = ({
     const handleShowFrame = (event) => {
       const { character, filename, frameNumber, timelinePosition, clipStartFrames, isDragging } = event.detail;
       
+      // Only process if timeline position has changed significantly (at least 1 frame)
+      const frameThreshold = 1;
+      const shouldProcess = !window.lastShowFramePosition || 
+        Math.abs(timelinePosition - window.lastShowFramePosition) >= frameThreshold;
+      
+      if (!shouldProcess) {
+        return; // Skip processing if position hasn't changed significantly
+      }
+      
       // Only log when hitting a new clip to reduce spam
       const isNewClip = !currentClip || currentClip.character !== character || currentClip.filename !== filename;
       if (isNewClip && character && filename) {
         // eslint-disable-next-line no-console
         console.log('📥 New clip:', character + '/' + filename);
       }
+      // Find the actual clip data to get correct endFrames
+      const actualClip = timelineClips.find(clip => 
+        clip.character === character && clip.filename === filename
+      );
+      
       // Store the last event for when video loads
       window.lastShowFrameEvent = { 
         timelinePosition, 
-            character,
-            filename,
+        character,
+        filename,
         clipStartFrames,
-        clipEndFrames: clipStartFrames + 1000 // Estimate, will be corrected by active clip
+        clipEndFrames: actualClip ? actualClip.endFrames : (clipStartFrames + 1000)
       };
+      
+      // Update the last processed position
+      window.lastShowFramePosition = timelinePosition;
       
       if (character && filename) {
         const clipData = { character, filename };
@@ -442,19 +502,27 @@ const TimelinePreview = ({
         if (clipsMatch) {
           // Same clip during playback - just seek, don't change URL
           
+          // Find the actual clip data to get correct endFrames
+          const actualClip = timelineClips.find(clip => 
+            clip.character === character && clip.filename === filename
+          );
+          
           // Update stored event for seeking
           window.lastShowFrameEvent = { 
             timelinePosition, 
             character,
             filename,
             clipStartFrames,
-            clipEndFrames: clipStartFrames + 1000
+            clipEndFrames: actualClip ? actualClip.endFrames : (clipStartFrames + 1000)
           };
           
           // Seek immediately during playback
           updateVideoTime(timelinePosition, isDragging);
         } else {
           // Different clip or not playing - change video URL normally
+          
+          // Reset the loaded metadata seeked flag for new video
+          window.hasLoadedMetadataSeeked = false;
           
           setCurrentClip(clipData);
           setVideoUrl(videoUrl);
@@ -613,8 +681,8 @@ const TimelinePreview = ({
                 // Video loaded successfully
                 setIsVideoLoaded(true);
                 
-                // Immediately seek to the correct time if we have a stored position (only for manual loading)
-                if (!isPlayingRef.current && window.lastShowFrameEvent) {
+                // Only seek once when video metadata loads, not repeatedly
+                if (!isPlayingRef.current && window.lastShowFrameEvent && !window.hasLoadedMetadataSeeked) {
                   // Try multiple times with increasing delays
                   setTimeout(() => {
                     const videoTime = convertTimelineToVideoTime(
@@ -627,6 +695,7 @@ const TimelinePreview = ({
                     if (videoTime !== null && videoRef.current) {
                       videoRef.current.currentTime = videoTime;
                       setVideoTime(videoTime);
+                      window.hasLoadedMetadataSeeked = true;
                     }
                   }, 100);
                   
@@ -698,18 +767,26 @@ const TimelinePreview = ({
                 // Video can play
                 // Don't auto-seek on canPlay during playback - let the playback logic handle seeking
                 if (!isPlayingRef.current && window.lastShowFrameEvent) {
-                  const videoTime = convertTimelineToVideoTime(
-                    window.lastShowFrameEvent.timelinePosition,
-                    window.lastShowFrameEvent.clipStartFrames || 0,
-                    window.lastShowFrameEvent.clipEndFrames || 1000,
-                    videoRef.current?.duration || 60
-                  );
+                  // Only seek if we haven't already sought to this position recently
+                  const lastCanPlaySeek = window.lastCanPlaySeek || 0;
+                  const positionThreshold = 1; // Only seek if timeline position changed by at least 1 frame
+                  const shouldSeek = Math.abs(window.lastShowFrameEvent.timelinePosition - lastCanPlaySeek) >= positionThreshold;
                   
-                  if (videoTime !== null && videoRef.current) {
-                    // eslint-disable-next-line no-console
-                    console.log('🎬 CAN PLAY SEEK (manual):', videoTime);
-                    videoRef.current.currentTime = videoTime;
-                    setVideoTime(videoTime);
+                  if (shouldSeek) {
+                    const videoTime = convertTimelineToVideoTime(
+                      window.lastShowFrameEvent.timelinePosition,
+                      window.lastShowFrameEvent.clipStartFrames || 0,
+                      window.lastShowFrameEvent.clipEndFrames || 1000,
+                      videoRef.current?.duration || 60
+                    );
+                    
+                    if (videoTime !== null && videoRef.current) {
+                      // eslint-disable-next-line no-console
+                      console.log('🎬 CAN PLAY SEEK (manual):', videoTime);
+                      videoRef.current.currentTime = videoTime;
+                      setVideoTime(videoTime);
+                      window.lastCanPlaySeek = window.lastShowFrameEvent.timelinePosition;
+                    }
                   }
                 } else if (isPlayingRef.current) {
                   // eslint-disable-next-line no-console
@@ -807,7 +884,9 @@ const TimelinePreview = ({
                 <div>Character: {currentClip.character}</div>
                 <div>File: {currentClip.filename}</div>
                 <div>Video Time: {videoTime.toFixed(2)}s</div>
+                <div>Video Frame: {Math.floor(videoTime * 24)}</div>
                 <div>Loaded: {isVideoLoaded ? '✅' : '⏳'}</div>
+                <div>Playing: {isPlaying ? '▶️' : '⏸️'}</div>
               </div>
               
               <div style={{ fontSize: '10px', color: '#ccc', marginBottom: '8px' }}>
