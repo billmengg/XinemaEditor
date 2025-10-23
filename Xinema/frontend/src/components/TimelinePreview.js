@@ -12,6 +12,8 @@ const TimelinePreview = ({
   const [isVideoLoaded, setIsVideoLoaded] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentPlayheadPosition, setCurrentPlayheadPosition] = useState(0);
+  const [currentCropInfo, setCurrentCropInfo] = useState({ leftCropFrames: 0, rightCropFrames: 0 });
+  const [currentFrameNumber, setCurrentFrameNumber] = useState(0);
   
   // Refs for video control
   const videoRef = useRef(null);
@@ -27,7 +29,7 @@ const TimelinePreview = ({
   }
 
   // Debounced seek function for smooth scrubbing
-  const debouncedSeek = useCallback((timelinePosition, isDragging = false) => {
+  const debouncedSeek = useCallback((timelinePosition, isDragging = false, frameNumber = null) => {
     // Clear any pending seek
     if (seekTimeoutRef.current) {
       clearTimeout(seekTimeoutRef.current);
@@ -42,7 +44,7 @@ const TimelinePreview = ({
       // Executing debounced seek
       // Call updateVideoTime directly to avoid circular dependency
       if (videoRef.current && currentClip) {
-        updateVideoTime(timelinePosition);
+        updateVideoTime(timelinePosition, isDragging, frameNumber);
       }
     }, debounceTime);
   }, []);
@@ -166,7 +168,7 @@ const TimelinePreview = ({
   };
 
   // INSTANT PREVIEW HACK - Control video currentTime instead of loading frames
-  const updateVideoTime = useCallback((timelinePosition, isDragging = false) => {
+  const updateVideoTime = useCallback((timelinePosition, isDragging = false, frameNumber = null) => {
     // Group all updateVideoTime debug info into one collapsible object
     // eslint-disable-next-line no-console
     console.groupCollapsed('🎬 updateVideoTime Debug');
@@ -291,14 +293,34 @@ const TimelinePreview = ({
     });
     
     if (activeClip && activeClip.character === currentClip.character && activeClip.filename === currentClip.filename) {
-      // Convert timeline position to video time
-      const videoTime = convertTimelineToVideoTime(
-        timelinePosition, 
-        activeClip.startFrames, 
-        activeClip.endFrames, 
-        videoDuration, // Use clip duration from timeline
-        activeClip
-      );
+      // Debug logging
+      console.log('🔍 Preview frame calculation debug:', {
+        frameNumber,
+        timelinePosition,
+        activeClipStart: activeClip.startFrames,
+        activeClipEnd: activeClip.endFrames,
+        frameNumberType: typeof frameNumber,
+        frameNumberNull: frameNumber === null,
+        frameNumberUndefined: frameNumber === undefined
+      });
+      
+      // Use frameNumber from Timeline if available (includes crop offset), otherwise convert timeline position
+      let videoTime;
+      if (frameNumber !== null && frameNumber !== undefined) {
+        // Use the frame number calculated by Timeline (includes crop offset)
+        videoTime = frameNumber / 24; // Convert frame number to video time (24fps video)
+        console.log('✅ Using frameNumber from Timeline:', frameNumber, '-> videoTime:', videoTime);
+      } else {
+        // Fallback: Convert timeline position to video time
+        videoTime = convertTimelineToVideoTime(
+          timelinePosition, 
+          activeClip.startFrames, 
+          activeClip.endFrames, 
+          videoDuration, // Use clip duration from timeline
+          activeClip
+        );
+        console.log('⚠️ Using fallback calculation:', videoTime);
+      }
       
       if (videoTime !== null && videoRef.current) {
         const currentVideoTime = videoRef.current.currentTime || 0;
@@ -453,7 +475,19 @@ const TimelinePreview = ({
   // INSTANT PREVIEW HACK - Listen for timeline position changes
   useEffect(() => {
     const handleShowFrame = (event) => {
-      const { character, filename, frameNumber, timelinePosition, clipStartFrames, isDragging } = event.detail;
+      const { character, filename, frameNumber, timelinePosition, clipStartFrames, leftCropFrames, rightCropFrames, isDragging } = event.detail;
+      
+      // Debug logging for frameNumber
+      console.log('📥 Received showFrame event:', {
+        character,
+        filename,
+        frameNumber,
+        timelinePosition,
+        clipStartFrames,
+        leftCropFrames,
+        rightCropFrames,
+        frameNumberType: typeof frameNumber
+      });
       
       // Only process if timeline position has changed significantly (at least 1 frame)
       const frameThreshold = 1;
@@ -483,6 +517,10 @@ const TimelinePreview = ({
         clipStartFrames,
         clipEndFrames: actualClip ? actualClip.endFrames : (clipStartFrames + 1000)
       };
+      
+      // Update crop info
+      setCurrentCropInfo({ leftCropFrames: leftCropFrames || 0, rightCropFrames: rightCropFrames || 0 });
+      setCurrentFrameNumber(frameNumber || 0);
       
       // Update the last processed position
       window.lastShowFramePosition = timelinePosition;
@@ -517,7 +555,7 @@ const TimelinePreview = ({
           };
           
           // Seek immediately during playback
-          updateVideoTime(timelinePosition, isDragging);
+          updateVideoTime(timelinePosition, isDragging, frameNumber);
         } else {
           // Different clip or not playing - change video URL normally
           
@@ -529,11 +567,11 @@ const TimelinePreview = ({
           
           // Use debounced seek for manual scrubbing or new clips
           if (isVideoLoaded) {
-            debouncedSeek(timelinePosition, isDragging);
+            debouncedSeek(timelinePosition, isDragging, frameNumber);
           } else {
             // If video not loaded yet, store position for later
             setTimeout(() => {
-              debouncedSeek(timelinePosition, isDragging);
+              debouncedSeek(timelinePosition, isDragging, frameNumber);
             }, 100);
           }
         }
@@ -884,7 +922,9 @@ const TimelinePreview = ({
                 <div>Character: {currentClip.character}</div>
                 <div>File: {currentClip.filename}</div>
                 <div>Video Time: {videoTime.toFixed(2)}s</div>
-                <div>Video Frame: {Math.floor(videoTime * 24)}</div>
+                <div>Video Frame: {Math.floor(videoTime * 24) + currentCropInfo.leftCropFrames} ({Math.floor(videoTime * 24)} + {currentCropInfo.leftCropFrames})</div>
+                <div>Frame Served: {currentFrameNumber}</div>
+                <div>Debug: frameNumber={currentFrameNumber}, videoTime={videoTime?.toFixed(2)}s</div>
                 <div>Loaded: {isVideoLoaded ? '✅' : '⏳'}</div>
                 <div>Playing: {isPlaying ? '▶️' : '⏸️'}</div>
               </div>

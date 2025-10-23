@@ -535,29 +535,68 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
   const handleMouseUp = () => {
     // Handle timeline clip drop
     if (isDraggingClip && dragPreview) {
-      // Update the existing clip with new position
-      setTimelineClips(prev => prev.map(clip => 
-        clip.id === dragPreview.id 
-          ? {
+      // Find the original clip to calculate drag offset
+      const originalClip = timelineClips.find(clip => clip.id === dragPreview.id);
+      if (originalClip) {
+        // Calculate the drag offset from visual start position
+        const currentVisualStart = originalClip.startFrames;
+        const newVisualStart = pixelsToFrames(dragPreview.startPixel);
+        const dragOffsetFrames = newVisualStart - currentVisualStart;
+        
+        // Update the existing clip using proper drag offset logic
+        setTimelineClips(prev => prev.map(clip => {
+          if (clip.id === dragPreview.id) {
+            // Get current values
+            const currentOriginalStart = clip.originalStart ?? (clip.instanceStartFrames ?? clip.startFrames);
+            const currentOriginalEnd = clip.originalEnd ?? (clip.instanceEndFrames ?? clip.endFrames);
+            const leftCropFrames = clip.leftCropFrames ?? 0;
+            const rightCropFrames = clip.rightCropFrames ?? 0;
+            
+            // Apply drag offset to original positions
+            const newOriginalStart = currentOriginalStart + dragOffsetFrames;
+            const newOriginalEnd = currentOriginalEnd + dragOffsetFrames;
+            
+            // Calculate visual positions based on original positions + crops
+            const visualStartFrames = newOriginalStart + leftCropFrames;
+            const visualEndFrames = newOriginalEnd - rightCropFrames;
+            const visualWidthFrames = visualEndFrames - visualStartFrames;
+            
+            return {
               ...clip,
               track: dragPreview.track,
-              startPixel: dragPreview.startPixel,
-              endPixel: dragPreview.endPixel,
-              widthPixel: dragPreview.widthPixel,
-              startFrames: pixelsToFrames(dragPreview.startPixel),
-              endFrames: pixelsToFrames(dragPreview.endPixel),
-              // Update instance data to match display data
-              instanceStartFrames: pixelsToFrames(dragPreview.startPixel),
-              instanceEndFrames: pixelsToFrames(dragPreview.endPixel),
-              instanceStartPixel: dragPreview.startPixel,
-              instanceEndPixel: dragPreview.endPixel,
-              instanceWidthPixel: dragPreview.widthPixel,
+              
+              // Instance data (actual clip boundaries - same as original positions)
+              instanceStartFrames: newOriginalStart,
+              instanceEndFrames: newOriginalEnd,
+              instanceStartPixel: framesToPixels(newOriginalStart),
+              instanceEndPixel: framesToPixels(newOriginalEnd),
+              instanceWidthPixel: framesToPixels(newOriginalEnd) - framesToPixels(newOriginalStart),
+              
+              // Visual positions (what user sees - original + crops)
+              startFrames: visualStartFrames,
+              endFrames: visualEndFrames,
+              startPixel: framesToPixels(visualStartFrames),
+              endPixel: framesToPixels(visualEndFrames),
+              widthPixel: framesToPixels(visualWidthFrames),
+              
+              // Update time
+              startTime: visualStartFrames / 60,
+              
               // Preserve crop offsets when moving clips
-              leftCropFrames: clip.leftCropFrames ?? 0,
-              rightCropFrames: clip.rightCropFrames ?? 0
-            }
-          : clip
-      ));
+              leftCropFrames: leftCropFrames,
+              rightCropFrames: rightCropFrames,
+              
+              // Update original position references with drag offset
+              originalStart: newOriginalStart,
+              originalEnd: newOriginalEnd,
+              
+              // Store drag offset for debug
+              lastDragOffset: dragOffsetFrames
+            };
+          }
+          return clip;
+        }));
+      }
       
       // Clear drag state
       setIsDraggingClip(false);
@@ -2174,16 +2213,33 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
         // by adding the left crop offset (which represents the starting frame in the original)
         clipFrame = Math.floor(relativePosition + leftCropFrames);
         
-        // Ensure we don't exceed the cropped range
-        const instanceDuration = activeClip.instanceEndFrames - activeClip.instanceStartFrames;
-        const maxServedFrame = instanceDuration - rightCropFrames;
-        clipFrame = Math.min(clipFrame, maxServedFrame);
+        // Debug logging
+        console.log('🔍 Frame calculation debug:', {
+          relativePosition,
+          leftCropFrames,
+          rightCropFrames,
+          calculatedFrame: clipFrame,
+          staticDuration: staticData.durationFrames,
+          maxOriginalFrame: staticData.durationFrames || 1000
+        });
         
-        // Ensure we don't go below the left crop
-        clipFrame = Math.max(clipFrame, leftCropFrames);
+        // Ensure we don't exceed the original clip duration
+        const maxOriginalFrame = staticData.durationFrames || 1000; // Fallback duration
+        clipFrame = Math.min(clipFrame, maxOriginalFrame - rightCropFrames);
+        
+        // Ensure we don't go below frame 0
+        clipFrame = Math.max(clipFrame, 0);
+        
+        console.log('🔍 Final frame:', {
+          beforeConstraints: Math.floor(relativePosition + leftCropFrames),
+          afterConstraints: clipFrame,
+          maxOriginalFrame,
+          rightCropFrames
+        });
       } else {
         // Fallback to original calculation
         clipFrame = Math.floor(relativePosition);
+        console.log('⚠️ No static data, using fallback calculation:', clipFrame);
       }
       
       // Found active clip (no logging to reduce spam)
@@ -2196,6 +2252,8 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
           frameNumber: clipFrame,
           timelinePosition: gridAlignedPosition, // Use grid-aligned position
           clipStartFrames: clipStartFrames,
+          leftCropFrames: leftCropFrames,
+          rightCropFrames: rightCropFrames,
           isDragging: isDraggingPlayhead
         }
       });
