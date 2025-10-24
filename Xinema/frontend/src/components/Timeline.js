@@ -1360,6 +1360,60 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
     return closestSnap !== null ? closestSnap : positionFrames;
   };
 
+  // Magnetic function for cropping - snap crop position to nearby magnetic points (excluding playhead)
+  const applyCropMagnetism = (cropPositionFrames, snapThresholdPixels = null) => {
+    // Use the global threshold if not specified, otherwise convert pixels to frames
+    const frameSnapThreshold = snapThresholdPixels ? pixelsToFrames(snapThresholdPixels) : MAGNETIC_SNAP_THRESHOLD_FRAMES;
+    
+    // Find the closest magnetic point to the crop position
+    let closestPoint = null;
+    let minDistance = Infinity;
+    
+    // USE LIVE MAGNETIC POINTS (no snapshot needed)
+    const debugPoints = Array.from(magneticPointsRef.current.values());
+    
+    // Debug logging for available magnetic points during cropping (only when snapping occurs)
+    const eligiblePoints = debugPoints.filter(p => {
+      const isExcluded = p.type === MAGNETIC_TYPES.DRAGGED_CLIP || p.type === MAGNETIC_TYPES.PLAYHEAD;
+      const distance = Math.abs(cropPositionFrames - p.frame);
+      return !isExcluded && distance < frameSnapThreshold;
+    });
+    
+    debugPoints.forEach((point) => {
+      // Skip dragged clip points and playhead points
+      if (point.type === MAGNETIC_TYPES.DRAGGED_CLIP || point.type === MAGNETIC_TYPES.PLAYHEAD) {
+        return;
+      }
+      
+      const { frame } = point;
+      
+      // Check distance to crop position
+      const distance = Math.abs(cropPositionFrames - frame);
+      if (distance < frameSnapThreshold && distance < minDistance) {
+        minDistance = distance;
+        closestPoint = frame;
+      }
+    });
+    
+    // If we found a magnetic point, we need to adjust it back to the actual crop position
+    // because magnetic points have the magnetic offset added to them
+    const magneticOffsetFrames = pixelsToFrames(MAGNETIC_OFFSET_PIXELS);
+    const result = closestPoint !== null ? closestPoint - magneticOffsetFrames : cropPositionFrames;
+    
+    // Only log when snapping actually occurs
+    if (result !== cropPositionFrames) {
+      console.log('🧲 Crop snapped:', {
+        from: cropPositionFrames,
+        to: result,
+        offset: magneticOffsetFrames,
+        eligiblePoints: eligiblePoints.length
+      });
+    }
+    
+    // Return the snapped position or original if no snap found
+    return result;
+  };
+
   // Simple magnetism function for dragged clips - snap to closest point
   const applyDraggedClipMagnetism = (startFrames, endFrames, snapThresholdPixels = null) => {
     // Use the global threshold if not specified, otherwise convert pixels to frames
@@ -1750,6 +1804,64 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
     }
   }, [isDraggingPlayhead, isDraggingClip, smoothPlayheadPosition, timelineClips.length]);
 
+  // Keyboard controls - Global across entire app
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      // Only skip if user is actively typing in a text input or textarea
+      if (event.target.tagName === 'INPUT' && event.target.type !== 'range') {
+        return;
+      }
+      if (event.target.tagName === 'TEXTAREA') {
+        return;
+      }
+      if (event.target.contentEditable === 'true') {
+        return;
+      }
+
+      switch (event.code) {
+        case 'Space':
+          event.preventDefault();
+          console.log('🎹 Spacebar pressed - toggling play/pause');
+          // Toggle play/pause
+          if (onTimelineClick) {
+            onTimelineClick();
+          }
+          break;
+        
+        case 'ArrowLeft':
+          event.preventDefault();
+          console.log('🎹 Left arrow pressed - moving playhead left');
+          // Move playhead left by one frame
+          {
+            const newLeftPosition = Math.max(0, playheadPosition - 1);
+            setPlayheadPosition(newLeftPosition);
+            setIsManualPlayheadChange(true);
+          }
+          break;
+        
+        case 'ArrowRight':
+          event.preventDefault();
+          console.log('🎹 Right arrow pressed - moving playhead right');
+          // Move playhead right by one frame
+          {
+            const newRightPosition = playheadPosition + 1;
+            setPlayheadPosition(newRightPosition);
+            setIsManualPlayheadChange(true);
+          }
+          break;
+        
+        default:
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [playheadPosition, onTimelineClick]);
+
   // Check if playhead is in a prerender area and trigger prerendering if needed
   const checkAndTriggerPrerender = (framePosition) => {
     // Don't trigger prerender during drag operations
@@ -1835,13 +1947,10 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
     // Convert mouse position to frames using the same logic as clip placement
     const newFramePosition = pixelsToFrames(relativeX);
     
-    // Debug logging for mouse position
-    console.log('Mouse position debug:', {
-      mouseX,
-      relativeX,
-      newFramePosition,
-      pixelsToFrames: pixelsToFrames(relativeX)
-    });
+    // Debug logging for mouse position (only when cropping)
+    if (trimmingClip && trimmingClip.trimHandle) {
+      console.log('🖱️ Crop drag:', { frame: newFramePosition, handle: trimmingClip.trimHandle });
+    }
     
     
     // Get the current clip data from timelineClips to ensure we have the latest state
@@ -1858,6 +1967,19 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
     let leftCropFrames = currentLeftCrop;
     let rightCropFrames = currentRightCrop;
     
+    // Apply magnetism to the mouse position first (for both crop calculation and visual preview)
+    const snappedFramePosition = applyCropMagnetism(newFramePosition);
+    
+    // Debug logging for magnetic snapping
+    if (Math.abs(snappedFramePosition - newFramePosition) > 1) {
+      console.log('🧲 Crop magnetic snap:', {
+        trimHandle,
+        originalPosition: newFramePosition,
+        snappedPosition: snappedFramePosition,
+        snapDistance: snappedFramePosition - newFramePosition
+      });
+    }
+    
     if (trimHandle === 'start') {
       // For left crop, use instanceStart as the base position
       // Mouse to the left = less crop (decrop), mouse to the right = more crop
@@ -1869,18 +1991,18 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
       const originalInstanceDuration = originalEnd - originalStart;
       const maxCropFrames = originalInstanceDuration - 1;
       
-      // Calculate how far the mouse is from the instance start position
-      const mouseOffset = newFramePosition - instanceStart;
+      // Calculate how far the snapped position is from the instance start position
+      const mouseOffset = snappedFramePosition - instanceStart;
       
       // If mouse is very close to current visual position, maintain current crop
       const currentVisualStart = currentClip.startFrames;
-      const mouseAtCurrentPosition = Math.abs(newFramePosition - currentVisualStart) < 5; // 5 frame tolerance
+      const mouseAtCurrentPosition = Math.abs(snappedFramePosition - currentVisualStart) < 5; // 5 frame tolerance
       
       if (mouseAtCurrentPosition) {
         // Keep current crop amount when clicking without moving
         leftCropFrames = currentLeftCrop;
       } else {
-        // Direct mapping: mouse offset = crop amount
+        // Direct mapping: snapped mouse offset = crop amount
         // Negative offset = decrop, positive offset = crop
         leftCropFrames = Math.max(0, Math.min(mouseOffset, maxCropFrames));
       }
@@ -1897,40 +2019,78 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
       const originalInstanceDuration = originalEnd - originalStart;
       const maxCropFrames = originalInstanceDuration - 1;
       
-      // Calculate how far the mouse is from the instance end position
-      const mouseOffset = newFramePosition - instanceEnd;
+      // Calculate how far the snapped position is from the instance end position
+      const mouseOffset = snappedFramePosition - instanceEnd;
       
       // If mouse is very close to current visual position, maintain current crop
       const currentVisualEnd = currentClip.endFrames;
-      const mouseAtCurrentPosition = Math.abs(newFramePosition - currentVisualEnd) < 5; // 5 frame tolerance
+      const mouseAtCurrentPosition = Math.abs(snappedFramePosition - currentVisualEnd) < 5; // 5 frame tolerance
       
       if (mouseAtCurrentPosition) {
         // Keep current crop amount when clicking without moving
         rightCropFrames = currentRightCrop;
       } else {
-        // Direct mapping: negative mouse offset = crop amount (mouse left of original = more crop)
+        // Direct mapping: negative snapped mouse offset = crop amount (mouse left of original = more crop)
         // Negative offset = more crop, positive offset = less crop (decrop)
         rightCropFrames = Math.max(0, Math.min(-mouseOffset, maxCropFrames));
       }
     }
     
-    // Calculate visual display properties based on crop values
+    // Calculate visual display properties - use snapped position but respect crop limits
     let newStartFrames = currentClip.instanceStartFrames ?? currentClip.startFrames;
     let newEndFrames = currentClip.instanceEndFrames ?? currentClip.endFrames;
     
     if (trimHandle === 'start') {
-      // For left crop, visual position = instanceStart + leftCropFrames
+      // For left crop, visual position should snap to magnetic points but respect crop limits
       const instanceStart = currentClip.instanceStartFrames ?? currentClip.startFrames;
-      newStartFrames = instanceStart + leftCropFrames;
+      const originalStart = currentClip.originalStart ?? instanceStart;
+      const originalEnd = currentClip.originalEnd ?? (currentClip.instanceEndFrames ?? currentClip.endFrames);
+      
+      // Constrain snapped position to valid crop range
+      const minValidPosition = originalStart; // Can't crop before original start
+      const maxValidPosition = originalEnd; // Can't crop beyond original end
+      const constrainedSnappedPosition = Math.max(minValidPosition, Math.min(snappedFramePosition, maxValidPosition));
+      
+      // Debug logging for visual preview
+      if (constrainedSnappedPosition !== snappedFramePosition) {
+        console.log('🔒 Crop position constrained:', {
+          trimHandle: 'start',
+          snappedPosition: snappedFramePosition,
+          constrainedPosition: constrainedSnappedPosition,
+          originalStart,
+          originalEnd
+        });
+      }
+      
+      newStartFrames = constrainedSnappedPosition;
       // For end frames, maintain right crop: instanceEnd - rightCropFrames
       const instanceEnd = currentClip.instanceEndFrames ?? currentClip.endFrames;
       newEndFrames = instanceEnd - rightCropFrames;
     }
     
     if (trimHandle === 'end') {
-      // For right crop, visual position = instanceEnd - rightCropFrames
+      // For right crop, visual position should snap to magnetic points but respect crop limits
       const instanceEnd = currentClip.instanceEndFrames ?? currentClip.endFrames;
-      newEndFrames = instanceEnd - rightCropFrames;
+      const originalStart = currentClip.originalStart ?? (currentClip.instanceStartFrames ?? currentClip.startFrames);
+      const originalEnd = currentClip.originalEnd ?? instanceEnd;
+      
+      // Constrain snapped position to valid crop range
+      const minValidPosition = originalStart; // Can't crop before original start
+      const maxValidPosition = originalEnd; // Can't crop beyond original end
+      const constrainedSnappedPosition = Math.max(minValidPosition, Math.min(snappedFramePosition, maxValidPosition));
+      
+      // Debug logging for visual preview
+      if (constrainedSnappedPosition !== snappedFramePosition) {
+        console.log('🔒 Crop position constrained:', {
+          trimHandle: 'end',
+          snappedPosition: snappedFramePosition,
+          constrainedPosition: constrainedSnappedPosition,
+          originalStart,
+          originalEnd
+        });
+      }
+      
+      newEndFrames = constrainedSnappedPosition;
       // For start frames, maintain left crop: instanceStart + leftCropFrames
       const instanceStart = currentClip.instanceStartFrames ?? currentClip.startFrames;
       newStartFrames = instanceStart + leftCropFrames;
@@ -1954,29 +2114,15 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
       // Debug logging for crop operations
       if (trimHandle === 'start') {
         const originalStart = currentClip.originalStart ?? (currentClip.instanceStartFrames ?? currentClip.startFrames);
-        console.log('Left crop update:', {
-          trimHandle,
-          newFramePosition,
-          originalStart,
-          mouseOffset: newFramePosition - originalStart,
-          leftCropFrames,
-          newStartFrames,
-          newEndFrames,
-          startPixel: updated.startPixel,
-          endPixel: updated.endPixel,
-          widthPixel: updated.widthPixel
-        });
+        // Only log significant crop changes (every 50 frames)
+        if (Math.abs(leftCropFrames - (currentClip.leftCropFrames || 0)) > 50) {
+          console.log('✂️ Left crop:', { frames: leftCropFrames, width: updated.widthPixel });
+        }
       } else if (trimHandle === 'end') {
-        console.log('Right crop update:', {
-          trimHandle,
-          newStartFrames,
-          newEndFrames,
-          leftCropFrames,
-          rightCropFrames,
-          startPixel: updated.startPixel,
-          endPixel: updated.endPixel,
-          widthPixel: updated.widthPixel
-        });
+        // Only log significant crop changes (every 50 frames)
+        if (Math.abs(rightCropFrames - (currentClip.rightCropFrames || 0)) > 50) {
+          console.log('✂️ Right crop:', { frames: rightCropFrames, width: updated.widthPixel });
+        }
       }
       
       return updated;
@@ -2165,20 +2311,35 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
     const gridAlignedPosition = Math.round(framePosition);
     
     // Find all clips at this frame position and select the one on the highest track
-    const overlappingClips = timelineClips.filter(clip => 
-      gridAlignedPosition >= (clip.instanceStartFrames ?? clip.startFrames) && 
-      gridAlignedPosition <= (clip.instanceEndFrames ?? clip.endFrames)
-    );
+    // Use visual boundaries (adjusted by crops) instead of instance boundaries
+    const overlappingClips = timelineClips.filter(clip => {
+      const leftCropFrames = clip.leftCropFrames ?? 0;
+      const rightCropFrames = clip.rightCropFrames ?? 0;
+      const visualStartFrames = (clip.instanceStartFrames ?? clip.startFrames) + leftCropFrames;
+      const visualEndFrames = (clip.instanceEndFrames ?? clip.endFrames) - rightCropFrames;
+      
+      return gridAlignedPosition >= visualStartFrames && 
+             gridAlignedPosition <= visualEndFrames;
+    });
     
     // Debug logging for track priority
     if (overlappingClips.length > 1) {
       console.log('🎬 Multiple overlapping clips at position', gridAlignedPosition, ':', 
-        overlappingClips.map(clip => ({
-          character: clip.character,
-          track: clip.track,
-          startFrames: clip.instanceStartFrames ?? clip.startFrames,
-          endFrames: clip.instanceEndFrames ?? clip.endFrames
-        }))
+        overlappingClips.map(clip => {
+          const leftCropFrames = clip.leftCropFrames ?? 0;
+          const rightCropFrames = clip.rightCropFrames ?? 0;
+          const visualStartFrames = (clip.instanceStartFrames ?? clip.startFrames) + leftCropFrames;
+          const visualEndFrames = (clip.instanceEndFrames ?? clip.endFrames) - rightCropFrames;
+          
+          return {
+            character: clip.character,
+            track: clip.track,
+            visualStartFrames: visualStartFrames,
+            visualEndFrames: visualEndFrames,
+            leftCropFrames: leftCropFrames,
+            rightCropFrames: rightCropFrames
+          };
+        })
       );
     }
     
@@ -2197,8 +2358,8 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
     }
     
     if (activeClip) {
-      // Calculate the frame position within the timeline clip using the same frame grid as clip placement
-      const clipStartFrames = activeClip.startFrames; // Timeline position where clip was placed
+      // Calculate the frame position within the timeline clip using the instance boundaries
+      const clipStartFrames = activeClip.instanceStartFrames ?? activeClip.startFrames; // Use instance start (actual clip boundary)
       const relativePosition = gridAlignedPosition - clipStartFrames;
       
       // Apply crop logic to determine which frame to serve from the original clip
@@ -2220,21 +2381,19 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
           rightCropFrames,
           calculatedFrame: clipFrame,
           staticDuration: staticData.durationFrames,
-          maxOriginalFrame: staticData.durationFrames || 1000
+          maxOriginalFrame: staticData.durationFrames || 100000
         });
         
-        // Ensure we don't exceed the original clip duration
-        const maxOriginalFrame = staticData.durationFrames || 1000; // Fallback duration
-        clipFrame = Math.min(clipFrame, maxOriginalFrame - rightCropFrames);
-        
-        // Ensure we don't go below frame 0
-        clipFrame = Math.max(clipFrame, 0);
+        // REMOVED: Frame constraints - allow frames to go beyond original duration when cropped
+        // The frame calculation should be: relativePosition + leftCropFrames
+        // This allows serving frames from anywhere in the original video based on crop
         
         console.log('🔍 Final frame:', {
-          beforeConstraints: Math.floor(relativePosition + leftCropFrames),
-          afterConstraints: clipFrame,
-          maxOriginalFrame,
-          rightCropFrames
+          calculatedFrame: clipFrame,
+          relativePosition,
+          leftCropFrames,
+          rightCropFrames,
+          staticDuration: staticData.durationFrames
         });
       } else {
         // Fallback to original calculation
@@ -2244,26 +2403,39 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
       
       // Found active clip (no logging to reduce spam)
       
-      // Dispatch event to show the frame in preview
-      const event = new CustomEvent('showFrame', {
+      // Calculate 24fps frame for preview
+      const servedFrame24fps = Math.floor(clipFrame * 24 / 60);
+      
+      // Dispatch playhead update with served frame
+      const playheadEvent = new CustomEvent('playheadUpdate', {
         detail: {
-          character: activeClip.character,
-          filename: activeClip.filename,
-          frameNumber: clipFrame,
-          timelinePosition: gridAlignedPosition, // Use grid-aligned position
-          clipStartFrames: clipStartFrames,
-          leftCropFrames: leftCropFrames,
-          rightCropFrames: rightCropFrames,
-          isDragging: isDraggingPlayhead
+          playhead: {
+            position: gridAlignedPosition,
+            servedFrame: servedFrame24fps,
+            activeClip: {
+              character: activeClip.character,
+              filename: activeClip.filename
+            },
+            leftCropFrames: leftCropFrames,
+            rightCropFrames: rightCropFrames
+          }
         }
       });
-      window.dispatchEvent(event);
+      window.dispatchEvent(playheadEvent);
     } else {
-      // Only log occasionally when no clip found
-      if (!isDraggingClip && gridAlignedPosition % 100 === 0) {
-        // eslint-disable-next-line no-console
-        console.log('❌ No clip at frame:', gridAlignedPosition);
-      }
+      // Debug logging for cropped clip endings
+      console.log('❌ No active clip at frame:', gridAlignedPosition, {
+        timelineClips: timelineClips.map(clip => ({
+          character: clip.character,
+          filename: clip.filename,
+          instanceStart: clip.instanceStartFrames ?? clip.startFrames,
+          instanceEnd: clip.instanceEndFrames ?? clip.endFrames,
+          leftCrop: clip.leftCropFrames ?? 0,
+          rightCrop: clip.rightCropFrames ?? 0,
+          visualStart: (clip.instanceStartFrames ?? clip.startFrames) + (clip.leftCropFrames ?? 0),
+          visualEnd: (clip.instanceEndFrames ?? clip.endFrames) - (clip.rightCropFrames ?? 0)
+        }))
+      });
       // Dispatch event to show black frame or placeholder
       const event = new CustomEvent('showFrame', {
         detail: {
@@ -2275,6 +2447,20 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
         }
       });
       window.dispatchEvent(event);
+      
+      // Dispatch playhead update with no active clip
+      const playheadEvent = new CustomEvent('playheadUpdate', {
+        detail: {
+          playhead: {
+            position: gridAlignedPosition,
+            servedFrame: 0, // No frame when no active clip
+            activeClip: null,
+            leftCropFrames: 0,
+            rightCropFrames: 0
+          }
+        }
+      });
+      window.dispatchEvent(playheadEvent);
     }
   };
 

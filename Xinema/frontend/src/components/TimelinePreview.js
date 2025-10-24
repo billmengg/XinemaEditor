@@ -15,6 +15,9 @@ const TimelinePreview = ({
   const [currentCropInfo, setCurrentCropInfo] = useState({ leftCropFrames: 0, rightCropFrames: 0 });
   const [currentFrameNumber, setCurrentFrameNumber] = useState(0);
   
+  // Cache for last shown frame per clip (clip address -> frame position)
+  const clipFrameCache = useRef(new Map()); // key: "character/filename", value: lastFramePosition
+  
   // Refs for video control
   const videoRef = useRef(null);
   const seekTimeoutRef = useRef(null);
@@ -42,10 +45,7 @@ const TimelinePreview = ({
 
     seekTimeoutRef.current = setTimeout(() => {
       // Executing debounced seek
-      // Call updateVideoTime directly to avoid circular dependency
-      if (videoRef.current && currentClip) {
-        updateVideoTime(timelinePosition, isDragging, frameNumber);
-      }
+      // REMOVED: updateVideoTime call - let playheadUpdate handle all video seeking
     }, debounceTime);
   }, []);
 
@@ -261,11 +261,7 @@ const TimelinePreview = ({
       console.log('🎬 Video not ready but trying anyway during playback...');
       
       // If video is not ready, try again in a short while
-      setTimeout(() => {
-        if (videoRef.current && currentClip) {
-          updateVideoTime(timelinePosition, isDragging);
-        }
-      }, 50);
+      // REMOVED: updateVideoTime call - let playheadUpdate handle all video seeking
       // eslint-disable-next-line no-console
       console.groupEnd();
       return;
@@ -472,120 +468,105 @@ const TimelinePreview = ({
     console.groupEnd();
   }, [timelineClips, currentClip, isVideoLoaded, isPlayingRef]);
 
-  // INSTANT PREVIEW HACK - Listen for timeline position changes
+  // INSTANT PREVIEW HACK - Listen for playhead updates
   useEffect(() => {
-    const handleShowFrame = (event) => {
-      const { character, filename, frameNumber, timelinePosition, clipStartFrames, leftCropFrames, rightCropFrames, isDragging } = event.detail;
+    const handlePlayheadUpdate = (event) => {
+      const { playhead } = event.detail;
       
-      // Debug logging for frameNumber
-      console.log('📥 Received showFrame event:', {
-        character,
-        filename,
-        frameNumber,
-        timelinePosition,
-        clipStartFrames,
-        leftCropFrames,
-        rightCropFrames,
-        frameNumberType: typeof frameNumber
+      // Debug logging
+      console.log('📥 Received playhead update:', {
+        position: playhead.position,
+        servedFrame: playhead.servedFrame,
+        activeClip: playhead.activeClip,
+        leftCropFrames: playhead.leftCropFrames,
+        rightCropFrames: playhead.rightCropFrames
       });
       
-      // Only process if timeline position has changed significantly (at least 1 frame)
-      const frameThreshold = 1;
-      const shouldProcess = !window.lastShowFramePosition || 
-        Math.abs(timelinePosition - window.lastShowFramePosition) >= frameThreshold;
+      // Update frame number from playhead
+      setCurrentFrameNumber(playhead.servedFrame);
+      console.log('🎯 Setting currentFrameNumber to:', playhead.servedFrame);
+      setCurrentCropInfo({ 
+        leftCropFrames: playhead.leftCropFrames || 0, 
+        rightCropFrames: playhead.rightCropFrames || 0 
+      });
       
-      if (!shouldProcess) {
-        return; // Skip processing if position hasn't changed significantly
-      }
-      
-      // Only log when hitting a new clip to reduce spam
-      const isNewClip = !currentClip || currentClip.character !== character || currentClip.filename !== filename;
-      if (isNewClip && character && filename) {
-        // eslint-disable-next-line no-console
-        console.log('📥 New clip:', character + '/' + filename);
-      }
-      // Find the actual clip data to get correct endFrames
-      const actualClip = timelineClips.find(clip => 
-        clip.character === character && clip.filename === filename
-      );
-      
-      // Store the last event for when video loads
-      window.lastShowFrameEvent = { 
-        timelinePosition, 
-        character,
-        filename,
-        clipStartFrames,
-        clipEndFrames: actualClip ? actualClip.endFrames : (clipStartFrames + 1000)
-      };
-      
-      // Update crop info
-      setCurrentCropInfo({ leftCropFrames: leftCropFrames || 0, rightCropFrames: rightCropFrames || 0 });
-      setCurrentFrameNumber(frameNumber || 0);
-      
-      // Update the last processed position
-      window.lastShowFramePosition = timelinePosition;
-      
-      if (character && filename) {
+      if (playhead.activeClip) {
+        const { character, filename } = playhead.activeClip;
         const clipData = { character, filename };
         const videoUrl = `http://localhost:5000/api/video/${character}/${filename}`;
         
-        // During playback, avoid changing video URL to prevent reloading
-        // Just seek within the current video if it's the same clip
-        const clipsMatch = isPlaying && currentClip && 
-          currentClip.character === character && 
-          currentClip.filename === filename;
+        // Check if this is a new clip
+        const isNewClip = !currentClip || currentClip.character !== character || currentClip.filename !== filename;
         
-        // Clip comparison (no logging to reduce spam)
-        
-        if (clipsMatch) {
-          // Same clip during playback - just seek, don't change URL
-          
-          // Find the actual clip data to get correct endFrames
-          const actualClip = timelineClips.find(clip => 
-            clip.character === character && clip.filename === filename
-          );
-          
-          // Update stored event for seeking
-          window.lastShowFrameEvent = { 
-            timelinePosition, 
-            character,
-            filename,
-            clipStartFrames,
-            clipEndFrames: actualClip ? actualClip.endFrames : (clipStartFrames + 1000)
-          };
-          
-          // Seek immediately during playback
-          updateVideoTime(timelinePosition, isDragging, frameNumber);
-        } else {
-          // Different clip or not playing - change video URL normally
-          
-          // Reset the loaded metadata seeked flag for new video
-          window.hasLoadedMetadataSeeked = false;
-          
+        if (isNewClip) {
+          console.log('📥 New clip:', character + '/' + filename);
           setCurrentClip(clipData);
           setVideoUrl(videoUrl);
+        }
+        
+        // Calculate video time from served frame (24fps frame → video time)
+        const videoTime = playhead.servedFrame / 24; // Convert 24fps frame to video time
+        
+        // Update video time display immediately
+        setVideoTime(videoTime);
+        
+        // Cache the current frame position for this clip
+        const clipKey = `${character}/${filename}`;
+        clipFrameCache.current.set(clipKey, playhead.servedFrame);
+        console.log('💾 Cached frame for', clipKey, ':', playhead.servedFrame);
+        
+        // Seek video immediately for frame-by-frame movement (no debouncing)
+        if (videoRef.current && isVideoLoaded && videoRef.current.duration) {
+          const maxVideoTime = videoRef.current.duration;
+          const constrainedVideoTime = Math.min(videoTime, maxVideoTime);
           
-          // Use debounced seek for manual scrubbing or new clips
-          if (isVideoLoaded) {
-            debouncedSeek(timelinePosition, isDragging, frameNumber);
-          } else {
-            // If video not loaded yet, store position for later
+          // Only seek if the video is ready and the time difference is significant
+          const currentVideoTime = videoRef.current.currentTime;
+          const timeDifference = Math.abs(constrainedVideoTime - currentVideoTime);
+          
+          // Debug logging
+          console.log('🎬 Immediate video seek:', {
+            servedFrame: playhead.servedFrame,
+            calculatedTime: videoTime.toFixed(2) + 's',
+            maxVideoTime: maxVideoTime.toFixed(2) + 's',
+            constrainedTime: constrainedVideoTime.toFixed(2) + 's',
+            currentVideoTime: currentVideoTime.toFixed(2) + 's',
+            timeDifference: timeDifference.toFixed(2) + 's',
+            conversion: `${playhead.servedFrame} / 24 = ${videoTime.toFixed(2)}s`
+          });
+          
+          // Only seek if there's a meaningful difference to prevent unnecessary seeks
+          if (timeDifference > 0.05) { // Only seek if difference is more than 50ms
+            videoRef.current.currentTime = constrainedVideoTime;
+            
+            // Verify the seek worked
             setTimeout(() => {
-              debouncedSeek(timelinePosition, isDragging, frameNumber);
-            }, 100);
+              if (videoRef.current) {
+                const newTime = videoRef.current.currentTime;
+                console.log('🔍 Seek verification:', {
+                  requested: constrainedVideoTime.toFixed(2) + 's',
+                  oldTime: currentVideoTime.toFixed(2) + 's',
+                  actualNewTime: newTime.toFixed(2) + 's',
+                  seekWorked: Math.abs(newTime - constrainedVideoTime) < 0.1
+                });
+              }
+            }, 5);
+          } else {
+            console.log('⏭️ Skipping seek - time difference too small:', timeDifference.toFixed(2) + 's');
           }
         }
       } else {
-        // No clip at this position
+        // No active clip
+        console.log('🚫 No active clip - clearing video');
         setCurrentClip(null);
         setVideoUrl(null);
         setVideoTime(0);
       }
     };
 
-    window.addEventListener('showFrame', handleShowFrame);
+    window.addEventListener('playheadUpdate', handlePlayheadUpdate);
     return () => {
-      window.removeEventListener('showFrame', handleShowFrame);
+      window.removeEventListener('playheadUpdate', handlePlayheadUpdate);
       // Clean up any pending seeks
       if (seekTimeoutRef.current) {
         clearTimeout(seekTimeoutRef.current);
@@ -597,12 +578,11 @@ const TimelinePreview = ({
   // Update video time when video loads or timeline position changes
   useEffect(() => {
     if (isVideoLoaded && currentClip) {
-      // Get the current timeline position from the last showFrame event
-      // This is a bit of a hack, but we need to trigger seeking when video loads
-      const lastEvent = window.lastShowFrameEvent;
-      if (lastEvent) {
-        updateVideoTime(lastEvent.timelinePosition);
-      }
+      // REMOVED: updateVideoTime call - let playheadUpdate handle all video seeking
+      // const lastEvent = window.lastShowFrameEvent;
+      // if (lastEvent) {
+      //   updateVideoTime(lastEvent.timelinePosition);
+      // }
     }
   }, [isVideoLoaded, currentClip]);
 
@@ -629,10 +609,10 @@ const TimelinePreview = ({
       // Always update our current playhead position
       setCurrentPlayheadPosition(playheadPosition);
       
-      // If we're not currently playing, update the video time
-      if (!isPlaying && videoRef.current && currentClip) {
-        updateVideoTime(playheadPosition);
-      }
+      // REMOVED: updateVideoTime call - let playheadUpdate handle all video seeking
+      // if (!isPlaying && videoRef.current && currentClip) {
+      //   updateVideoTime(playheadPosition);
+      // }
     };
     
     window.addEventListener('playheadChange', handlePlayheadChange);
@@ -719,42 +699,34 @@ const TimelinePreview = ({
                 // Video loaded successfully
                 setIsVideoLoaded(true);
                 
-                // Only seek once when video metadata loads, not repeatedly
-                if (!isPlayingRef.current && window.lastShowFrameEvent && !window.hasLoadedMetadataSeeked) {
-                  // Try multiple times with increasing delays
-                  setTimeout(() => {
-                    const videoTime = convertTimelineToVideoTime(
-                      window.lastShowFrameEvent.timelinePosition,
-                      window.lastShowFrameEvent.clipStartFrames || 0,
-                      window.lastShowFrameEvent.clipEndFrames || 1000,
-                      videoRef.current?.duration || 60
-                    );
-                    
-                    if (videoTime !== null && videoRef.current) {
-                      videoRef.current.currentTime = videoTime;
-                      setVideoTime(videoTime);
-                      window.hasLoadedMetadataSeeked = true;
-                    }
-                  }, 100);
+                // Immediately seek to cached frame position for this clip to prevent flash
+                if (currentClip && videoRef.current) {
+                  const clipKey = `${currentClip.character}/${currentClip.filename}`;
+                  const cachedFrame = clipFrameCache.current.get(clipKey);
                   
-                  // Try again after a longer delay
-                  setTimeout(() => {
-                    const videoTime = convertTimelineToVideoTime(
-                      window.lastShowFrameEvent.timelinePosition,
-                      window.lastShowFrameEvent.clipStartFrames || 0,
-                      window.lastShowFrameEvent.clipEndFrames || 1000,
-                      videoRef.current?.duration || 60
-                    );
+                  if (cachedFrame !== undefined) {
+                    const cachedVideoTime = cachedFrame / 24; // Convert 24fps frame to video time
+                    const maxVideoTime = videoRef.current.duration || 0;
+                    const constrainedTime = Math.min(cachedVideoTime, maxVideoTime);
                     
-                    if (videoTime !== null && videoRef.current && Math.abs(videoRef.current.currentTime - videoTime) > 0.5) {
-                      // eslint-disable-next-line no-console
-                      console.log('🎬 RETRY SEEK (manual):', videoTime);
-                      videoRef.current.currentTime = videoTime;
-                      setVideoTime(videoTime);
-                    }
-                  }, 500);
-                } else if (isPlayingRef.current) {
-                  // Video loaded during playback - skipping auto-seek
+                    console.log('🚀 Immediate seek to cached frame:', {
+                      clipKey,
+                      cachedFrame,
+                      cachedVideoTime: cachedVideoTime.toFixed(2) + 's',
+                      constrainedTime: constrainedTime.toFixed(2) + 's',
+                      maxVideoTime: maxVideoTime.toFixed(2) + 's'
+                    });
+                    
+                    videoRef.current.currentTime = constrainedTime;
+                    setVideoTime(constrainedTime);
+                    
+                    // Show video after seeking to cached position
+                    videoRef.current.style.opacity = '1';
+                  } else {
+                    console.log('⚠️ No cached frame for', clipKey, '- showing from beginning');
+                    // Show video even if no cache
+                    videoRef.current.style.opacity = '1';
+                  }
                 }
               }}
               onError={(e) => {
@@ -922,9 +894,7 @@ const TimelinePreview = ({
                 <div>Character: {currentClip.character}</div>
                 <div>File: {currentClip.filename}</div>
                 <div>Video Time: {videoTime.toFixed(2)}s</div>
-                <div>Video Frame: {Math.floor(videoTime * 24) + currentCropInfo.leftCropFrames} ({Math.floor(videoTime * 24)} + {currentCropInfo.leftCropFrames})</div>
                 <div>Frame Served: {currentFrameNumber}</div>
-                <div>Debug: frameNumber={currentFrameNumber}, videoTime={videoTime?.toFixed(2)}s</div>
                 <div>Loaded: {isVideoLoaded ? '✅' : '⏳'}</div>
                 <div>Playing: {isPlaying ? '▶️' : '⏸️'}</div>
               </div>
