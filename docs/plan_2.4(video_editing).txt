@@ -30,37 +30,17 @@ The Video Editing Features provide professional-grade editing tools for clip man
 ## 🎯 **MVP FEATURES (V0)**
 
 ### **1. Core Video Editing Operations**
-- [ ] **Clip Trimming & Cropping**
-  - [ ] Visual trim handles on clip edges
-  - [ ] Drag to adjust start/end points
-  - [ ] Frame-accurate trimming (60fps precision)
-  - [ ] Real-time preview during trimming
-  - [ ] Keyboard shortcuts (I/O keys for in/out points)
-  - [ ] Clip duration display with live updates
+- [x] **Clip Trimming & Cropping**
+  - [x] Visual trim handles on clip edges
+  - [x] Drag to adjust start/end points
+  - [x] Frame-accurate trimming (60fps precision)
+  - [x] Real-time preview during trimming
 
-- [ ] **Clip Cutting & Splitting**
-  - [ ] Split clip at playhead position
-  - [ ] Split tool cursor/icon
-  - [ ] Keyboard shortcut (Ctrl+S or S key)
-  - [ ] Maintain clip properties after split
-  - [ ] Multiple splits on single clip
-  - [ ] Independent trimming of split segments
-
-- [ ] **Clip Merging & Combining**
-  - [ ] Merge clips on same track
-  - [ ] Visual merge indicator
-  - [ ] Preserve all clip properties
-  - [ ] Undo merge operation
-  - [ ] Combine non-adjacent clips
-  - [ ] Maintain chronological order
-
-- [ ] **Speed Adjustment**
-  - [ ] 0.25x to 4x speed range
-  - [ ] Speed slider in clip properties
-  - [ ] Real-time preview of speed changes
-  - [ ] Maintain audio sync (basic)
-  - [ ] Speed presets (0.5x, 1x, 2x)
-  - [ ] Custom speed input
+- [x] **Clip Drag & Duplication**
+  - [x] Drag clips to reposition
+  - [x] Duplicate clips with Ctrl+Drag
+  - [x] Multi-track clip placement
+  - [x] Magnetic snapping during drag
 
 ### **2. Timeline Enhancements**
 - [ ] **Visual Editing Tools**
@@ -126,11 +106,37 @@ The Video Editing Features provide professional-grade editing tools for clip man
   - [ ] Home/End: Go to start/end
   - [ ] Arrow keys: Frame step
 
+  edit history and undo
+
 ---
 
 ## 🚀 **FUTURE ADVANCED FEATURES (V1+)**
 
 ### **Professional Editing Tools**
+- [ ] **Clip Cutting & Splitting**
+  - [ ] Split clip at playhead position
+  - [ ] Split tool cursor/icon
+  - [ ] Keyboard shortcut (Ctrl+S or S key)
+  - [ ] Maintain clip properties after split
+  - [ ] Multiple splits on single clip
+  - [ ] Independent trimming of split segments
+
+- [ ] **Clip Merging & Combining**
+  - [ ] Merge clips on same track
+  - [ ] Visual merge indicator
+  - [ ] Preserve all clip properties
+  - [ ] Undo merge operation
+  - [ ] Combine non-adjacent clips
+  - [ ] Maintain chronological order
+
+- [ ] **Speed Adjustment**
+  - [ ] 0.25x to 4x speed range
+  - [ ] Speed slider in clip properties
+  - [ ] Real-time preview of speed changes
+  - [ ] Maintain audio sync (basic)
+  - [ ] Speed presets (0.5x, 1x, 2x)
+  - [ ] Custom speed input
+
 - [ ] **Advanced Trimming**
   - [ ] Ripple trim left/right
   - [ ] Automatic gap closing
@@ -289,16 +295,16 @@ const editingData = {
 ## 📋 **IMPLEMENTATION PHASES**
 
 ### **Phase 1: Core Editing (Weeks 1-2)**
-1. Clip trimming handles implementation
-2. Split tool development
-3. Basic undo/redo system
-4. Clip properties panel
+1. ✅ Clip trimming handles implementation
+2. ✅ Clip drag and duplication
+3. ✅ Magnetic snapping system
+4. ✅ Multi-track support
 
 ### **Phase 2: Enhanced Tools (Weeks 3-4)**
-1. Clip merging functionality
-2. Speed adjustment controls
-3. Timeline zoom system
-4. Keyboard shortcuts
+1. Basic undo/redo system
+2. Timeline zoom system
+3. Keyboard shortcuts
+4. Clip properties panel
 
 ### **Phase 3: Polish & UX (Weeks 5-6)**
 1. Context menus
@@ -306,21 +312,20 @@ const editingData = {
 3. Tool selection UI
 4. Performance optimization
 
-### **Phase 4: Advanced Features (Future)**
-1. Multi-track editing
-2. Professional effects
-3. Advanced export options
-4. Collaboration tools
+### **Phase 4: Advanced Features (V1)**
+1. Clip cutting and splitting
+2. Clip merging functionality
+3. Speed adjustment controls
+4. Advanced editing tools
 
 ---
 
 ## 🎯 **SUCCESS CRITERIA**
 
 ### **MVP Success Criteria**
-- [ ] Users can trim clips with frame accuracy
-- [ ] Users can split clips at any position
-- [ ] Users can merge adjacent clips
-- [ ] Users can adjust clip speed
+- [x] Users can trim clips with frame accuracy
+- [x] Users can drag and duplicate clips
+- [x] Users can position clips with magnetic snapping
 - [ ] All operations are undoable
 - [ ] Timeline zoom works smoothly
 - [ ] Keyboard shortcuts are intuitive
@@ -442,11 +447,11 @@ const editingData = {
 
 ---
 
-**Status**: Planning phase, ready for implementation
+**Status**: Phase 1 Complete, Phase 2 In Progress
 **Priority**: High (Core V0 feature)
-**Estimated Time**: 6 weeks (V0 complete)
+**Estimated Time**: 4 weeks remaining (V0 complete)
 **Dependencies**: Timeline, Preview components
-**Next Phase**: Core editing tools implementation
+**Next Phase**: Enhanced tools and UX improvements
 
 ---
 

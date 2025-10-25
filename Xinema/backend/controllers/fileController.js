@@ -15,9 +15,11 @@ const CACHE_EXPIRY_TIME = 10 * 60 * 1000; // 10 minutes (longer cache)
 const previewSequences = new Map();
 const PREVIEW_FRAME_INTERVAL = 1.0; // Extract frame every 1 second (reduced frequency)
 
-// Rate limiting for frame extraction to prevent CPU overload
+// Rate limiting for frame extraction with priority system
 let activeFrameExtractions = 0;
-const MAX_CONCURRENT_EXTRACTIONS = 1; // Reduced to 1 to prevent CPU overload
+const MAX_CONCURRENT_EXTRACTIONS = 3; // Increased to allow multiple extractions
+let urgentExtractions = 0; // Track urgent (on-demand) extractions
+const MAX_URGENT_EXTRACTIONS = 2; // Reserve slots for urgent requests
 
 // Background processing queue for non-urgent tasks
 const backgroundQueue = [];
@@ -104,7 +106,7 @@ async function generatePreviewSequence(character, filename, videoPath) {
     // Get video duration
     const videoInfo = await getVideoInfo(character, filename);
     const duration = videoInfo.duration;
-    const frameRate = videoInfo.frameRate || 30;
+    const frameRate = videoInfo.frameRate || 24;
     
     // Calculate frame positions for preview sequence
     const previewFrames = [];
@@ -165,57 +167,16 @@ function getNearestPreviewFrame(sequence, targetTime) {
   return closestFrame;
 }
 
-// Premiere Pro & DaVinci Resolve style thumbnail generation
-async function generatePremiereStyleThumbnail(videoPath, frameNumber) {
-  return new Promise((resolve, reject) => {
-    // Use frame number directly - no time conversion needed
-    const timePosition = frameNumber / 30; // Convert frame to time for FFmpeg seek
-    
-    // Optimized settings like Premiere Pro
-    const ffmpegArgs = [
-      '-hwaccel', 'auto', // GPU acceleration
-      '-ss', timePosition.toString(),
-      '-i', videoPath,
-      '-vframes', '1',
-      '-f', 'image2pipe',
-      '-vcodec', 'mjpeg',
-      '-q:v', '3', // Good quality but fast
-      '-s', '320x180', // Standard thumbnail size
-      '-threads', '2', // Minimal threads
-      '-preset', 'ultrafast',
-      '-tune', 'fastdecode',
-      '-loglevel', 'error',
-      '-nostdin',
-      '-'
-    ];
-    
-    const ffmpeg = spawn('ffmpeg', ffmpegArgs);
-    let thumbnailData = Buffer.alloc(0);
-    
-    ffmpeg.stdout.on('data', (chunk) => {
-      thumbnailData = Buffer.concat([thumbnailData, chunk]);
-    });
-    
-    ffmpeg.stdout.on('end', () => {
-      resolve(thumbnailData);
-    });
-    
-    ffmpeg.on('error', (error) => {
-      reject(error);
-    });
-    
-    // Reasonable timeout for quality thumbnails
-    setTimeout(() => {
-      ffmpeg.kill('SIGTERM');
-      reject(new Error('Thumbnail generation timeout'));
-    }, 1000); // 1 second timeout
-  });
+// Premiere Pro & DaVinci Resolve style thumbnail generation with priority support
+async function generatePremiereStyleThumbnail(videoPath, frameNumber, isUrgent = false) {
+  // Use the priority-aware extractPreviewFrame function
+  return await extractPreviewFrame(videoPath, frameNumber, 24, isUrgent);
 }
 
 // Premiere Pro style video thumbnail generation (instant loading)
 async function generateVideoThumbnail(videoPath, frameNumber) {
   return new Promise((resolve, reject) => {
-    const timePosition = frameNumber / 30; // Assume 30fps for thumbnail generation
+    const timePosition = frameNumber / 24; // Assume 24fps for thumbnail generation
     
     // Ultra-fast thumbnail generation like Premiere Pro
     const ffmpegArgs = [
@@ -257,35 +218,59 @@ async function generateVideoThumbnail(videoPath, frameNumber) {
   });
 }
 
-// Extract and cache a preview frame (optimized for CPU usage with rate limiting)
-async function extractPreviewFrame(videoPath, frameNumber, frameRate) {
-  // Enhanced rate limiting to prevent CPU overload
-  if (activeFrameExtractions >= MAX_CONCURRENT_EXTRACTIONS) {
-    console.log('⏳ Rate limiting frame extraction to prevent CPU overload');
-    await new Promise(resolve => setTimeout(resolve, 500)); // Increased wait time
-    return null; // Return null instead of retrying to reduce load
+// Extract and cache a preview frame with priority support
+async function extractPreviewFrame(videoPath, frameNumber, frameRate, isUrgent = false) {
+  // Priority-based rate limiting
+  if (isUrgent) {
+    // Urgent requests (on-demand) get priority
+    if (urgentExtractions >= MAX_URGENT_EXTRACTIONS) {
+      console.log('⏳ Urgent extraction queue full, waiting...');
+      await new Promise(resolve => setTimeout(resolve, 100)); // Short wait for urgent
+      return null;
+    }
+  } else {
+    // Background requests wait if urgent slots are needed
+    if (activeFrameExtractions >= MAX_CONCURRENT_EXTRACTIONS) {
+      console.log('⏳ Background extraction rate limited');
+      await new Promise(resolve => setTimeout(resolve, 500));
+      return null;
+    }
   }
   
+  if (isUrgent) {
+    urgentExtractions++;
+  }
   activeFrameExtractions++;
   
   return new Promise((resolve, reject) => {
     const timePosition = frameNumber / frameRate;
+    const startTime = performance.now();
     
-    // Ultra-optimized FFmpeg args for minimal CPU usage
+    // eslint-disable-next-line no-console
+    console.log('🎬 FFmpeg extraction starting:', {
+      videoPath,
+      frameNumber,
+      timePosition,
+      frameRate,
+      isUrgent
+    });
+    
+    // Balanced FFmpeg args for reliable and fast extraction
     const ffmpegArgs = [
       '-hwaccel', 'auto', // Enable hardware acceleration
       '-ss', timePosition.toString(),
       '-i', videoPath,
       '-vframes', '1',
       '-f', 'image2pipe',
-      '-vcodec', 'png',
-      '-compression_level', '0', // Fastest compression (no compression)
-      '-pred', 'mixed', // Fast prediction
-      '-threads', '1', // Single thread to reduce CPU load
+      '-vcodec', 'mjpeg', // JPEG is faster than PNG
+      '-q:v', '3', // Balanced quality (not too low)
+      '-s', '640x360', // Reasonable size (not too small)
+      '-threads', '2', // Allow 2 threads for better performance
       '-preset', 'ultrafast', // Fastest encoding preset
       '-tune', 'fastdecode', // Optimize for fast decoding
       '-loglevel', 'error', // Reduce logging overhead
       '-nostdin', // Disable stdin to reduce overhead
+      '-y', // Overwrite output files
       '-'
     ];
     
@@ -297,107 +282,157 @@ async function extractPreviewFrame(videoPath, frameNumber, frameRate) {
     });
     
     ffmpeg.stdout.on('end', () => {
+      const endTime = performance.now();
+      const duration = endTime - startTime;
+      
       activeFrameExtractions--;
+      if (isUrgent) {
+        urgentExtractions--;
+      }
+      
+      // eslint-disable-next-line no-console
+      console.log('✅ FFmpeg extraction complete:', {
+        duration: `${duration.toFixed(1)}ms`,
+        frameSize: frameData.length,
+        frameNumber,
+        isUrgent
+      });
+      
       resolve(frameData);
     });
     
     ffmpeg.on('error', (error) => {
       activeFrameExtractions--;
+      if (isUrgent) {
+        urgentExtractions--;
+      }
       reject(error);
     });
     
-    // Reduced timeout for faster failure and less CPU usage
+    // Reasonable timeout for new clips (not too aggressive)
     setTimeout(() => {
       ffmpeg.kill('SIGTERM');
       activeFrameExtractions--;
+      if (isUrgent) {
+        urgentExtractions--;
+      }
       reject(new Error('Preview frame extraction timeout'));
-    }, 2000); // Reduced from 3000ms to 2000ms
+    }, 3000); // Increased back to 3000ms for reliable processing
   });
 }
 
-// Smart pre-extract frames for timeline preview (only when needed, optimized like Premiere Pro)
+// INSTANT FRAME SYSTEM - Premiere Pro style sparse keyframe index
 async function preExtractTimelineFrames(character, filename, videoPath, frameRate, duration) {
-  // Check if we should skip pre-extraction to reduce CPU load
   const sequenceKey = `${character}/${filename}`;
+  
+  // Check if already generated recently
   const existingSequence = previewSequences.get(sequenceKey);
-  
-  if (existingSequence && (Date.now() - existingSequence.generated) < 60000) { // 1 minute cooldown
-    console.log('⏭️ Skipping pre-extraction - sequence recently generated');
-    return;
+  if (existingSequence && (Date.now() - existingSequence.generated) < 300000) { // 5 minute cooldown
+    // eslint-disable-next-line no-console
+    console.log('⚡ Keyframe index already exists:', sequenceKey);
+    return existingSequence;
   }
   
-  // Check if frames are already pre-extracted
-  if (previewSequences.has(sequenceKey)) {
-    const sequence = previewSequences.get(sequenceKey);
-    if (sequence.frames && sequence.frames.length > 0 && sequence.frames[0].data) {
-      console.log('⚡ Timeline frames already pre-extracted:', sequenceKey);
-      return sequence;
-    }
-  }
-  
-  console.log('🎬 Pre-extracting timeline frames for:', sequenceKey);
+  // eslint-disable-next-line no-console
+  console.log('🎬 Creating INSTANT keyframe index:', sequenceKey);
   
   try {
-    // Optimized frame extraction - extract fewer frames for lower CPU usage
-    const frameInterval = 1.0; // Extract frame every 1 second (less CPU intensive)
     const totalFrames = Math.floor(duration * frameRate);
-    const previewFrames = [];
-    const frameHashes = new Map(); // For deduplication
     
-    for (let time = 0; time < duration; time += frameInterval) {
-      const frameNumber = Math.floor(time * frameRate);
-      if (frameNumber < totalFrames) {
-        try {
-          console.log(`📸 Extracting frame ${frameNumber}/${totalFrames} for ${sequenceKey}`);
-          const frameData = await extractPreviewFrame(videoPath, frameNumber, frameRate);
-          
-          // Simple deduplication - check if frame is similar to previous
-          const frameHash = frameData.length; // Simple hash based on size
-          const isDuplicate = frameHashes.has(frameHash) && 
-            Math.abs(frameHashes.get(frameHash) - frameNumber) < 5; // Within 5 frames
-          
-          if (!isDuplicate) {
-            previewFrames.push({
-              time: time,
-              frameNumber: frameNumber,
-              data: frameData
-            });
-            frameHashes.set(frameHash, frameNumber);
-          } else {
-            // Reference previous frame instead of storing duplicate
-            const prevFrame = previewFrames[previewFrames.length - 1];
-            previewFrames.push({
-              time: time,
-              frameNumber: frameNumber,
-              data: prevFrame.data, // Reference previous frame
-              isDuplicate: true
-            });
-            console.log(`🔄 Reusing frame ${frameNumber} (duplicate of ${prevFrame.frameNumber})`);
-          }
-        } catch (error) {
-          console.error(`❌ Error extracting frame ${frameNumber}:`, error);
-          // Continue with other frames even if one fails
+    // Create sparse keyframe index - Premiere Pro approach
+    // Generate keyframes at strategic intervals for instant seeking
+    const keyframes = [];
+    const intervals = [
+      1,      // Frame 1 (first frame)
+      30,     // Every 1 second at 30fps
+      60,     // Every 2 seconds at 30fps  
+      150,    // Every 5 seconds at 30fps
+      300     // Every 10 seconds at 30fps
+    ];
+    
+    // Generate keyframes using multiple intervals
+    intervals.forEach(interval => {
+      for (let frame = 0; frame < totalFrames; frame += interval) {
+        if (!keyframes.includes(frame)) {
+          keyframes.push(frame);
         }
       }
-    }
+    });
     
-    // Store the pre-extracted sequence
+    // Sort and limit to reasonable number
+    keyframes.sort((a, b) => a - b);
+    const maxKeyframes = Math.min(20, keyframes.length); // Max 20 keyframes for instant access
+    const finalKeyframes = keyframes.slice(0, maxKeyframes);
+    
+    // eslint-disable-next-line no-console
+    console.log('📊 Keyframe strategy:', {
+      totalFrames,
+      keyframesGenerated: finalKeyframes.length,
+      intervals: intervals.join(', '),
+      coverage: `${(finalKeyframes.length / totalFrames * 100).toFixed(1)}%`
+    });
+    
+    // Extract keyframes in parallel (limited concurrency for speed)
+    const extractionPromises = finalKeyframes.map(frameNumber => 
+      extractPreviewFrame(videoPath, frameNumber, frameRate, false) // Not urgent
+    );
+    
+    const results = await Promise.allSettled(extractionPromises);
+    const successfulExtractions = results.filter(result => result.status === 'fulfilled').length;
+    
+    // Create the instant access sequence
     const sequence = {
-      frames: previewFrames,
-      duration: duration,
-      frameRate: frameRate,
+      character,
+      filename,
+      keyframes: finalKeyframes,
+      frameRate,
+      duration,
       generated: Date.now(),
-      preExtracted: true
+      totalFrames: successfulExtractions,
+      instantAccess: true // Flag for instant access
     };
     
     previewSequences.set(sequenceKey, sequence);
-    console.log('✅ Pre-extracted timeline frames:', sequenceKey, 'with', previewFrames.length, 'frames');
+    
+    // eslint-disable-next-line no-console
+    console.log('✅ INSTANT keyframe index complete:', {
+      sequenceKey,
+      keyframes: successfulExtractions,
+      totalDuration: duration,
+      instantAccess: true
+    });
     
     return sequence;
   } catch (error) {
-    console.error('❌ Error pre-extracting timeline frames:', error);
+    // eslint-disable-next-line no-console
+    console.error('❌ Keyframe index creation failed:', error);
     return null;
   }
+}
+
+// INSTANT FRAME LOOKUP - Find nearest keyframe for instant access
+function findNearestKeyframe(sequence, targetFrame) {
+  if (!sequence || !sequence.keyframes || sequence.keyframes.length === 0) {
+    return null;
+  }
+  
+  // Find the closest keyframe
+  let nearestKeyframe = sequence.keyframes[0];
+  let minDistance = Math.abs(targetFrame - nearestKeyframe);
+  
+  for (const keyframe of sequence.keyframes) {
+    const distance = Math.abs(targetFrame - keyframe);
+    if (distance < minDistance) {
+      minDistance = distance;
+      nearestKeyframe = keyframe;
+    }
+  }
+  
+  return {
+    frame: nearestKeyframe,
+    distance: minDistance,
+    isExact: minDistance === 0
+  };
 }
 
 // CSV path
@@ -597,86 +632,40 @@ const processPrerender = async (req, res) => {
   }
 };
 
-// Clip-based thumbnail generation - Pre-render thumbnails tied to specific clips
+// Clip-based thumbnail generation - DISABLED for Premiere Pro style on-demand generation
 const generateClipThumbnails = async (req, res) => {
   try {
     const { character, filename, startFrame, endFrame, clipId } = req.body;
     const decodedFilename = decodeURIComponent(filename);
     
-    console.log('🎬 Clip-based thumbnail generation for:', { character, decodedFilename, startFrame, endFrame, clipId });
+    console.log('🎬 Clip thumbnail generation requested - DISABLED for on-demand mode');
     
-    // INSTANT response - don't wait for generation
+    // INSTANT response - no background generation (Premiere Pro style)
     res.json({
       success: true,
-      message: 'Clip thumbnail generation started',
+      message: 'Clip thumbnail generation disabled - using on-demand generation',
       character,
       filename: decodedFilename,
       clipId,
-      frameRange: { startFrame, endFrame }
+      frameRange: { startFrame, endFrame },
+      onDemandMode: true
     });
     
-    // Start background generation (non-blocking) for this specific clip
-    setImmediate(async () => {
-      try {
-        const videoPath = path.join(
-          'C:', 'Users', 'William', 'Documents', 'YouTube', 'Video', 'Arcane Footage', 'Video Footage 2',
-          character, decodedFilename
-        );
-        
-        // Get video info
-        const videoInfo = await getVideoInfo(character, decodedFilename);
-        const frameRate = videoInfo.frameRate || 30;
-        
-        // Generate thumbnails for the specific clip frame range
-        const thumbnails = [];
-        const frameInterval = 30; // Generate thumbnail every 30 frames (0.5 seconds at 60fps)
-        
-        console.log('🚀 Starting clip-specific thumbnail generation for frames', startFrame, 'to', endFrame);
-        
-        for (let frame = startFrame; frame <= endFrame; frame += frameInterval) {
-          try {
-            // Use Premiere Pro style generation with exact frame positioning
-            const thumbnailData = await generatePremiereStyleThumbnail(videoPath, frame);
-            if (thumbnailData) {
-              // Cache the thumbnail with clip-specific key to prevent duplicates
-              const cacheKey = `${character}/${decodedFilename}/${frame}`;
-              frameCache.set(cacheKey, {
-                data: thumbnailData,
-                timestamp: Date.now(),
-                clipId: clipId // Tie thumbnail to specific clip
-              });
-              
-              thumbnails.push({
-                frameNumber: frame,
-                size: thumbnailData.length
-              });
-              
-              // Log progress every 10 thumbnails
-              if (thumbnails.length % 10 === 0) {
-                console.log('📊 Generated', thumbnails.length, 'thumbnails for clip', clipId);
-              }
-            }
-          } catch (error) {
-            console.error('❌ Error generating thumbnail at frame', frame, error);
-          }
-        }
-        
-        console.log('✅ Generated', thumbnails.length, 'thumbnails for clip', clipId);
-        
-      } catch (error) {
-        console.error('❌ Error in clip thumbnail generation:', error);
-      }
-    });
+    // NO background processing - frames will be generated on-demand when scrubbing
     
   } catch (error) {
-    console.error('❌ Error starting clip thumbnails:', error);
+    console.error('❌ Error in clip thumbnail generation:', error);
     res.status(500).json({ error: error.message });
   }
 };
 
-// INSTANT frame loading - Only serve from cache, no processing
+// Enhanced frame loading with performance tracking and frame rate conversion
 const streamFrameDirect = async (req, res) => {
-  console.log('🎬 INSTANT FRAME REQUEST:', req.params);
+  const startTime = performance.now();
+  console.log('🎬 ENHANCED FRAME REQUEST:', {
+    params: req.params,
+    timestamp: new Date().toISOString()
+  });
   
   // Simple test - just return a basic response first
   if (req.params.frameNumber === 'test') {
@@ -691,27 +680,70 @@ const streamFrameDirect = async (req, res) => {
     // Decode URL-encoded filename
     const decodedFilename = decodeURIComponent(filename);
     
-    // Check cache first - INSTANT return (no processing)
+    // Enhanced cache key with frame rate info
     const cacheKey = getCacheKey(character, decodedFilename, frameNumber);
     const cachedEntry = frameCache.get(cacheKey);
     
     if (cachedEntry && isCacheValid(cachedEntry)) {
-      console.log('⚡ INSTANT cache hit:', cacheKey);
-      res.setHeader('Content-Type', 'image/jpeg');
-      res.setHeader('Cache-Control', 'public, max-age=31536000'); // 1 year
+      const loadTime = performance.now() - startTime;
+      console.log('⚡ INSTANT CACHE HIT:', cacheKey, `${loadTime.toFixed(1)}ms`);
+      res.setHeader('Content-Type', 'image/png');
+      res.setHeader('Cache-Control', 'public, max-age=300'); // 5 minutes only
+      res.setHeader('X-Frame-Load-Time', loadTime.toFixed(1));
+      res.setHeader('X-Frame-Source', 'cache');
       res.send(cachedEntry.data);
       return;
     }
     
-    // Generate thumbnail on demand if not cached
-    console.log('⚠️ Frame not cached, generating thumbnail on demand');
-    
-    // Validate frame number first
+    // INSTANT FRAME SYSTEM - Check keyframe index first
     const validatedFrameNumber = Math.round(parseFloat(frameNumber));
     if (isNaN(validatedFrameNumber) || validatedFrameNumber < 0) {
       console.error('❌ Invalid frame number:', validatedFrameNumber);
       return res.status(400).json({ error: 'Invalid frame number' });
     }
+    
+    // Check if we have a keyframe index for instant access
+    const sequenceKey = `${character}/${decodedFilename}`;
+    const sequence = previewSequences.get(sequenceKey);
+    
+    if (sequence && sequence.instantAccess && sequence.keyframes) {
+      // Find nearest keyframe for instant access
+      const keyframeResult = findNearestKeyframe(sequence, validatedFrameNumber);
+      
+      if (keyframeResult && keyframeResult.distance <= 30) { // Within 1 second at 30fps
+        // eslint-disable-next-line no-console
+        console.log('⚡ INSTANT KEYFRAME ACCESS:', {
+          requestedFrame: validatedFrameNumber,
+          keyframeFrame: keyframeResult.frame,
+          distance: keyframeResult.distance,
+          isExact: keyframeResult.isExact
+        });
+        
+        // Generate the keyframe instantly (should be cached)
+        const keyframeCacheKey = getCacheKey(character, decodedFilename, keyframeResult.frame);
+        const keyframeEntry = frameCache.get(keyframeCacheKey);
+        
+        if (keyframeEntry && isCacheValid(keyframeEntry)) {
+          const instantTime = performance.now() - startTime;
+          // eslint-disable-next-line no-console
+          console.log('🚀 INSTANT FRAME SERVED:', `${instantTime.toFixed(1)}ms`);
+          
+          res.setHeader('Content-Type', 'image/png');
+          res.setHeader('Cache-Control', 'public, max-age=3600');
+          res.setHeader('X-Frame-Load-Time', instantTime.toFixed(1));
+          res.setHeader('X-Frame-Source', 'keyframe');
+          res.setHeader('X-Frame-Number', validatedFrameNumber.toString());
+          res.setHeader('X-Keyframe-Frame', keyframeResult.frame.toString());
+          res.setHeader('X-Keyframe-Distance', keyframeResult.distance.toString());
+          res.send(keyframeEntry.data);
+          return;
+        }
+      }
+    }
+    
+    // Fallback to on-demand generation if no keyframe available
+    // eslint-disable-next-line no-console
+    console.log('⚠️ No keyframe available, generating on-demand');
     
     // Construct video path
     const videoPath = path.join(
@@ -720,21 +752,46 @@ const streamFrameDirect = async (req, res) => {
     );
     
     try {
-      // Generate thumbnail immediately
-      const thumbnailData = await generatePremiereStyleThumbnail(videoPath, validatedFrameNumber);
+      // Generate thumbnail immediately with performance tracking (URGENT PRIORITY)
+      const extractionStartTime = performance.now();
+      // eslint-disable-next-line no-console
+      console.log('🎬 Generating frame:', {
+        character,
+        filename: decodedFilename,
+        frameNumber: validatedFrameNumber,
+        videoPath,
+        timestamp: new Date().toISOString(),
+        isUrgent: true
+      });
+      
+      const thumbnailData = await generatePremiereStyleThumbnail(videoPath, validatedFrameNumber, true); // isUrgent = true
+      const extractionTime = performance.now() - extractionStartTime;
       if (thumbnailData) {
-        // Cache the thumbnail
+        // Cache the thumbnail with enhanced metadata
         frameCache.set(cacheKey, {
           data: thumbnailData,
-          timestamp: Date.now()
+          timestamp: Date.now(),
+          frameNumber: validatedFrameNumber,
+          extractionTime: extractionTime,
+          size: thumbnailData.length
         });
         
-        res.setHeader('Content-Type', 'image/jpeg');
-        res.setHeader('Cache-Control', 'public, max-age=31536000'); // 1 year
+        const totalTime = performance.now() - startTime;
+        // eslint-disable-next-line no-console
+        console.log('✅ Thumbnail generated and cached:', cacheKey, 
+                   `Extraction: ${extractionTime.toFixed(1)}ms, Total: ${totalTime.toFixed(1)}ms`);
+        
+        res.setHeader('Content-Type', 'image/png');
+        res.setHeader('Cache-Control', 'public, max-age=300'); // 5 minutes only
+        res.setHeader('X-Frame-Load-Time', totalTime.toFixed(1));
+        res.setHeader('X-Frame-Extraction-Time', extractionTime.toFixed(1));
+        res.setHeader('X-Frame-Source', 'generated');
+        res.setHeader('X-Frame-Number', validatedFrameNumber.toString());
         res.send(thumbnailData);
         return;
       }
     } catch (error) {
+      // eslint-disable-next-line no-console
       console.error('❌ Error generating thumbnail on demand:', error);
     }
     
@@ -746,7 +803,7 @@ const streamFrameDirect = async (req, res) => {
     const placeholder = Buffer.from(placeholderBase64, 'base64');
     
     res.setHeader('Content-Type', 'image/jpeg');
-    res.setHeader('Cache-Control', 'public, max-age=31536000'); // 1 year
+      res.setHeader('Cache-Control', 'public, max-age=300'); // 5 minutes only
     res.send(placeholder);
     return;
     
@@ -783,7 +840,7 @@ const streamFrameDirect = async (req, res) => {
         if (nearestFrame.data) {
           console.log('⚡ Serving frame from preview sequence:', sequenceKey, 'frame:', nearestFrame.frameNumber);
           res.setHeader('Content-Type', 'image/png');
-          res.setHeader('Cache-Control', 'public, max-age=3600'); // 1 hour
+          res.setHeader('Cache-Control', 'public, max-age=300'); // 5 minutes only
           res.send(nearestFrame.data);
           return;
         }
@@ -887,7 +944,7 @@ const streamFrameDirect = async (req, res) => {
     // Use FFmpeg to stream frame directly to response
     // Try using frame-based seeking with more reliable approach
     // Get video frame rate for accurate time calculation
-    let videoFrameRate = 30; // Default fallback
+    let videoFrameRate = 24; // Default fallback
     try {
       const videoInfo = await getVideoInfo(character, decodedFilename);
       if (videoInfo && videoInfo.frameRate) {
@@ -895,7 +952,7 @@ const streamFrameDirect = async (req, res) => {
         console.log('📹 Using video frame rate:', videoFrameRate, 'fps');
       }
     } catch (error) {
-      console.log('⚠️ Could not get video frame rate, using default 30fps');
+      console.log('⚠️ Could not get video frame rate, using default 24fps');
     }
     
     // Calculate time position for direct seeking (much faster than select filter)
@@ -1062,7 +1119,7 @@ const getVideoInfo = async (character, filename) => {
             
             if (videoStream) {
               // Parse frame rate (could be in format "30/1" or "30")
-              let frameRate = 30; // Default
+              let frameRate = 24; // Default
               if (videoStream.r_frame_rate) {
                 const [num, den] = videoStream.r_frame_rate.split('/');
                 frameRate = den ? parseFloat(num) / parseFloat(den) : parseFloat(num);

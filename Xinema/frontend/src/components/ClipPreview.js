@@ -3,10 +3,9 @@ import React, { useEffect } from 'react';
 export default function ClipPreview({ clip }) {
   // Debug logging
   useEffect(() => {
-    console.log('🎬 ClipPreview component received clip:', clip);
+    // ClipPreview component received clip
     if (clip) {
-      console.log('📁 Character:', clip.character);
-      console.log('📄 Filename:', clip.filename);
+      // Character and filename received
     }
   }, [clip]);
 
@@ -31,16 +30,17 @@ export default function ClipPreview({ clip }) {
   const videoPath = `http://localhost:5000/api/video/${clip.character}/${clip.filename}`;
 
   const handleVideoLoad = () => {
-    console.log('✅ Video loaded successfully');
+    // Video loaded successfully
   };
 
   const handleVideoError = (e) => {
+    // Video error occurred
     console.error('❌ Video error:', e);
     console.error('❌ Video src:', e.target.src);
   };
 
   const handleVideoCanPlay = () => {
-    console.log('▶️ Video can play');
+    // Video can play
   };
 
   return (

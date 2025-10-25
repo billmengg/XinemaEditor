@@ -9,7 +9,9 @@ function FileNavTab() {
     fetch("http://localhost:5000/api/files")
       .then((res) => res.json())
       .then((data) => setClips(data))
-      .catch((err) => console.error("Error fetching clips:", err));
+      .catch((err) => {
+        // Error fetching clips
+      });
   }, []);
 
   return (

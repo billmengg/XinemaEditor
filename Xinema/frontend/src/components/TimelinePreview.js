@@ -26,8 +26,7 @@ const TimelinePreview = ({
 
   // Debug timeline clips - only log when clips change
   if (timelineClips.length > 0 && timelineClips.length !== (window.lastClipCount || 0)) {
-    // eslint-disable-next-line no-console
-    console.log('🔍 Timeline clips updated:', timelineClips.length);
+    // Timeline clips updated
     window.lastClipCount = timelineClips.length;
   }
 
@@ -51,14 +50,7 @@ const TimelinePreview = ({
 
   // Play/pause functionality - SIMPLIFIED: Just dispatch play/pause events to Timeline
   const togglePlayPause = () => {
-    // eslint-disable-next-line no-console
-    console.log('🔴 PLAY BUTTON PRESSED - Current state:', {
-      isPlaying,
-      currentPlayheadPosition,
-      hasVideoRef: !!videoRef.current,
-      hasCurrentClip: !!currentClip,
-      currentClip: currentClip
-    });
+    // Play button pressed
     
     if (isPlaying) {
       // Stop playing - dispatch event to Timeline
@@ -71,8 +63,7 @@ const TimelinePreview = ({
       const stopEvent = new CustomEvent('timelineStopPlayback');
       window.dispatchEvent(stopEvent);
       
-      // eslint-disable-next-line no-console
-      console.log('⏸️ Playback stopped');
+      // Playback stopped
     } else {
       // Start playing - dispatch event to Timeline
       setIsPlaying(true);
@@ -87,11 +78,7 @@ const TimelinePreview = ({
       });
       window.dispatchEvent(startEvent);
       
-      // eslint-disable-next-line no-console
-      console.log('🎬 Playback started - Timeline will handle animation', {
-        startPosition: currentPlayheadPosition,
-        playbackSpeed: 1.5
-      });
+      // Playback started - Timeline will handle animation
     }
   };
 
@@ -107,17 +94,7 @@ const TimelinePreview = ({
     const shouldLog = Math.abs(timelinePosition - lastConversionLog) >= 1; // Only log if position changed by at least 1 frame
     
     if (shouldLog) {
-      // eslint-disable-next-line no-console
-      console.log('🔢 CONVERSION DEBUG:', {
-        timelinePosition,
-        clipStartFrames,
-        clipEndFrames,
-        videoDuration: actualVideoDuration,
-        isBeforeClip: timelinePosition < clipStartFrames,
-        isAfterClip: timelinePosition > clipEndFrames,
-        isInRange: timelinePosition >= clipStartFrames && timelinePosition <= clipEndFrames,
-        clipHasDuration: !!(activeClip && activeClip.duration)
-      });
+      // Conversion debug
       window.lastConversionLog = timelinePosition;
     }
     
@@ -125,12 +102,7 @@ const TimelinePreview = ({
     
     // Check if playhead is within this clip
     if (timelinePosition < clipStartFrames || timelinePosition > clipEndFrames) {
-      // eslint-disable-next-line no-console
-      console.log('❌ OUTSIDE CLIP RANGE:', {
-        timelinePosition, 
-        clipRange: `${clipStartFrames}-${clipEndFrames}`,
-        reason: timelinePosition < clipStartFrames ? 'before clip' : 'after clip'
-      });
+      // Outside clip range
       return null; // Not in this clip
     }
     
@@ -143,25 +115,12 @@ const TimelinePreview = ({
     
     // Only log success if we haven't already logged for this position recently
     if (shouldLog) {
-      // eslint-disable-next-line no-console
-      console.log('✅ CONVERSION SUCCESS:', {
-        relativeFrames,
-        relativeTime: relativeTime.toFixed(2),
-        finalTime: finalTime.toFixed(2)
-      });
+      // Conversion success
     }
     
     // DEBUG: Check if the conversion makes sense
     if (finalTime < 0 || finalTime > actualVideoDuration) {
-      // eslint-disable-next-line no-console
-      console.warn('⚠️ Conversion result seems wrong:', {
-        finalTime: finalTime.toFixed(2),
-        videoDuration: actualVideoDuration.toFixed(2),
-        relativeFrames,
-        timelinePosition,
-        clipStartFrames,
-        clipEndFrames
-      });
+      // Conversion result seems wrong
     }
     
     return finalTime;
@@ -169,33 +128,7 @@ const TimelinePreview = ({
 
   // INSTANT PREVIEW HACK - Control video currentTime instead of loading frames
   const updateVideoTime = useCallback((timelinePosition, isDragging = false, frameNumber = null) => {
-    // Group all updateVideoTime debug info into one collapsible object
-    // eslint-disable-next-line no-console
-    console.groupCollapsed('🎬 updateVideoTime Debug');
-    // eslint-disable-next-line no-console
-    console.log('Input:', { timelinePosition, isDragging, hasVideoRef: !!videoRef.current, hasCurrentClip: !!currentClip });
-    
-    // DEBUG: Check video state
-    if (videoRef.current) {
-      // eslint-disable-next-line no-console
-      console.log('Video state:', {
-        duration: videoRef.current.duration,
-        currentTime: videoRef.current.currentTime,
-        readyState: videoRef.current.readyState,
-        paused: videoRef.current.paused,
-        ended: videoRef.current.ended
-      });
-    }
-    
     if (!videoRef.current || !currentClip) {
-      // eslint-disable-next-line no-console
-      console.log('⚠️ Cannot update video time:', {
-        hasVideoRef: !!videoRef.current,
-        hasCurrentClip: !!currentClip,
-        timelinePosition
-      });
-      // eslint-disable-next-line no-console
-      console.groupEnd();
       return;
     }
 
@@ -206,10 +139,7 @@ const TimelinePreview = ({
     const minSeekInterval = isDuringPlayback ? 16 : (isDragging ? 50 : 100); // 16ms during playback (60fps), 50ms when dragging, 100ms otherwise
 
     if (timeSinceLastSeek < minSeekInterval) {
-      // eslint-disable-next-line no-console
-      console.log('⏳ Rate limited:', { timeSinceLastSeek, minSeekInterval, timelinePosition, isDuringPlayback });
-      // eslint-disable-next-line no-console
-      console.groupEnd();
+      // Rate limited
       return;
     }
 
@@ -219,10 +149,7 @@ const TimelinePreview = ({
     
     // Add comprehensive null checks
     if (!videoRef.current) {
-      // eslint-disable-next-line no-console
-      console.log('⚠️ Video ref is null, cannot seek');
-      // eslint-disable-next-line no-console
-      console.groupEnd();
+      // Video ref is null, cannot seek
       return;
     }
     
@@ -244,26 +171,19 @@ const TimelinePreview = ({
     
     // During playback, be more aggressive about seeking even if video isn't fully loaded
     if (!isDuringPlayback && ((!videoDuration) || (videoReadyState < 2))) {
-      // eslint-disable-next-line no-console
-      console.log('⏳ Video not ready:', {
-        duration: videoDuration,
-        readyState: videoReadyState,
-        isDuringPlayback
-      });
-      // eslint-disable-next-line no-console
-      console.groupEnd();
+      // Video not ready
       return;
     }
     
     // During playback, try to seek anyway even if video isn't fully loaded
     if (isDuringPlayback && (!videoDuration || videoReadyState < 2)) {
       // eslint-disable-next-line no-console
-      console.log('🎬 Video not ready but trying anyway during playback...');
+      // Video not ready but trying anyway during playback
       
       // If video is not ready, try again in a short while
       // REMOVED: updateVideoTime call - let playheadUpdate handle all video seeking
       // eslint-disable-next-line no-console
-      console.groupEnd();
+      // Update video time completed
       return;
     }
     
@@ -273,39 +193,20 @@ const TimelinePreview = ({
       // Don't return - try to seek anyway during playback
     }
     
-    // eslint-disable-next-line no-console
-    console.log('🔍 Active clip:', activeClip ? {
-      character: activeClip.character,
-      filename: activeClip.filename,
-      startFrames: activeClip.startFrames,
-      endFrames: activeClip.endFrames
-    } : 'None found');
+    // Active clip found
     
-    // eslint-disable-next-line no-console
-    console.log('🎬 Clip matching:', {
-      clipsMatch: activeClip && activeClip.character === currentClip.character && activeClip.filename === currentClip.filename,
-      currentClip: currentClip?.character + '/' + currentClip?.filename,
-      activeClip: activeClip?.character + '/' + activeClip?.filename
-    });
+    // Clip matching
     
     if (activeClip && activeClip.character === currentClip.character && activeClip.filename === currentClip.filename) {
       // Debug logging
-      console.log('🔍 Preview frame calculation debug:', {
-        frameNumber,
-        timelinePosition,
-        activeClipStart: activeClip.startFrames,
-        activeClipEnd: activeClip.endFrames,
-        frameNumberType: typeof frameNumber,
-        frameNumberNull: frameNumber === null,
-        frameNumberUndefined: frameNumber === undefined
-      });
+      // Preview frame calculation debug
       
       // Use frameNumber from Timeline if available (includes crop offset), otherwise convert timeline position
       let videoTime;
       if (frameNumber !== null && frameNumber !== undefined) {
         // Use the frame number calculated by Timeline (includes crop offset)
         videoTime = frameNumber / 24; // Convert frame number to video time (24fps video)
-        console.log('✅ Using frameNumber from Timeline:', frameNumber, '-> videoTime:', videoTime);
+        // Using frameNumber from Timeline
       } else {
         // Fallback: Convert timeline position to video time
         videoTime = convertTimelineToVideoTime(
@@ -315,22 +216,14 @@ const TimelinePreview = ({
           videoDuration, // Use clip duration from timeline
           activeClip
         );
-        console.log('⚠️ Using fallback calculation:', videoTime);
+        // Using fallback calculation
       }
       
       if (videoTime !== null && videoRef.current) {
         const currentVideoTime = videoRef.current.currentTime || 0;
         const timeDifference = Math.abs(videoTime - currentVideoTime);
         
-        // eslint-disable-next-line no-console
-        console.log('✅ Attempting video seek:', {
-          timelinePosition,
-          videoTime: videoTime.toFixed(2) + 's',
-          currentVideoTime: currentVideoTime.toFixed(2) + 's',
-          duration: videoRef.current?.duration?.toFixed(2) + 's',
-          readyState: videoRef.current?.readyState,
-          timeDifference: timeDifference.toFixed(2) + 's'
-        });
+        // Attempting video seek
         
         // Seek if difference is significant or video is ready
         // During playback, be more aggressive about seeking to reduce jitter
@@ -353,63 +246,51 @@ const TimelinePreview = ({
           if (videoRef.current) {
             const oldTime = videoRef.current.currentTime;
             videoRef.current.currentTime = videoTime;
-            setVideoTime(videoTime);
+            // Don't update setVideoTime here - only playheadUpdate should update it
             
             // Check if the seek actually worked (reduced timeout for smoother playback)
             setTimeout(() => {
               const newTime = videoRef.current?.currentTime || 0;
-              // eslint-disable-next-line no-console
-              console.log('🔍 Seek verification:', {
-                requested: videoTime.toFixed(2) + 's',
-                oldTime: oldTime.toFixed(2) + 's',
-                actualNewTime: newTime.toFixed(2) + 's',
-                seekWorked: Math.abs(newTime - videoTime) < 0.1
-              });
+              // Seek verification
               
               // During playback, skip the play/pause trick to reduce jitter
               if (!isDuringPlayback && videoRef.current && Math.abs(newTime - videoTime) < 0.1) {
                 // eslint-disable-next-line no-console
-                console.log('🎬 Forcing video display update...');
+                // Forcing video display update
                 videoRef.current.play().then(() => {
                   videoRef.current.pause();
                   // eslint-disable-next-line no-console
-                  console.log('🎬 Video display should now be updated');
+                  // Video display should now be updated
                 }).catch(err => {
                   // eslint-disable-next-line no-console
-                  console.log('🎬 Play/pause failed:', err);
+                  // Play/pause failed
                 });
               }
             }, isDuringPlayback ? 1 : 10); // Much faster timeout during playback
             
             // eslint-disable-next-line no-console
-            console.log('✅ Video seek command sent to:', videoTime.toFixed(2) + 's');
+            // Video seek command sent
           }
         } else {
           // eslint-disable-next-line no-console
-          console.log('⏭️ Skipping seek - time difference too small:', timeDifference.toFixed(2) + 's');
+          // Skipping seek - time difference too small
         }
       }
     } else {
       // No active clip found or clips don't match - try fallback approach using stored event data
       // eslint-disable-next-line no-console
-      console.log('🔄 Using fallback approach');
+      // Using fallback approach
       
       if (window.lastShowFrameEvent && currentClip) {
         // eslint-disable-next-line no-console
-        console.log('🔄 No active clip found, trying fallback seek:', window.lastShowFrameEvent);
+        // No active clip found, trying fallback seek
         
         // Check if timeline position is within the actual clip boundaries
         const isWithinClip = timelinePosition >= window.lastShowFrameEvent.clipStartFrames && 
                             timelinePosition <= window.lastShowFrameEvent.clipEndFrames;
         
         if (!isWithinClip) {
-          // eslint-disable-next-line no-console
-          console.log('❌ Timeline position outside clip boundaries, not seeking:', {
-            timelinePosition,
-            clipRange: `${window.lastShowFrameEvent.clipStartFrames}-${window.lastShowFrameEvent.clipEndFrames}`
-          });
-          // eslint-disable-next-line no-console
-          console.groupEnd();
+          // Timeline position outside clip boundaries, not seeking
           return;
         }
         
@@ -422,42 +303,22 @@ const TimelinePreview = ({
           null // No activeClip for fallback
         );
         
-        // eslint-disable-next-line no-console
-        console.log('🎬 FALLBACK CALCULATION:', {
-          timelinePosition,
-          clipStartFrames: window.lastShowFrameEvent.clipStartFrames,
-          clipEndFrames: window.lastShowFrameEvent.clipEndFrames,
-          videoDuration: videoDuration,
-          calculatedVideoTime: videoTime,
-          currentVideoTime: videoRef.current?.currentTime,
-          timeDifference: videoTime && videoRef.current ? Math.abs(videoTime - videoRef.current.currentTime) : 'null'
-        });
+        // FALLBACK CALCULATION
         
         if (videoTime !== null && videoRef.current && Math.abs(videoTime - videoRef.current.currentTime) > 0.1) {
-          // eslint-disable-next-line no-console
-          console.log('🎬 FALLBACK SEEK:', {
-        timelinePosition, 
-            videoTime: videoTime.toFixed(2),
-            storedClipStart: window.lastShowFrameEvent.clipStartFrames,
-            storedClipEnd: window.lastShowFrameEvent.clipEndFrames
-          });
+          // FALLBACK SEEK
           
           videoRef.current.currentTime = videoTime;
-          setVideoTime(videoTime);
+          // Don't update setVideoTime here - only playheadUpdate should update it
         } else {
           // eslint-disable-next-line no-console
-          console.log('⚠️ FALLBACK SEEK SKIPPED:', {
-            reason: videoTime === null ? 'videoTime is null' : !videoRef.current ? 'videoRef is null' : 'time difference too small',
-            videoTime,
-            currentTime: videoRef.current?.currentTime,
-            difference: videoTime && videoRef.current ? Math.abs(videoTime - videoRef.current.currentTime) : 'N/A'
-          });
+          // FALLBACK SEEK SKIPPED
         }
         } else {
         // No active clip - pause video or show black
         if (videoRef.current && !videoRef.current.paused) {
           // eslint-disable-next-line no-console
-          console.log('⏸️ No active clip, pausing video');
+          // No active clip, pausing video
           videoRef.current.pause();
         }
       }
@@ -465,7 +326,7 @@ const TimelinePreview = ({
     
     // Close the debug group
     // eslint-disable-next-line no-console
-    console.groupEnd();
+    // Update video time completed
   }, [timelineClips, currentClip, isVideoLoaded, isPlayingRef]);
 
   // INSTANT PREVIEW HACK - Listen for playhead updates
@@ -473,18 +334,11 @@ const TimelinePreview = ({
     const handlePlayheadUpdate = (event) => {
       const { playhead } = event.detail;
       
-      // Debug logging
-      console.log('📥 Received playhead update:', {
-        position: playhead.position,
-        servedFrame: playhead.servedFrame,
-        activeClip: playhead.activeClip,
-        leftCropFrames: playhead.leftCropFrames,
-        rightCropFrames: playhead.rightCropFrames
-      });
+      // Received playhead update
       
       // Update frame number from playhead
       setCurrentFrameNumber(playhead.servedFrame);
-      console.log('🎯 Setting currentFrameNumber to:', playhead.servedFrame);
+      // Setting currentFrameNumber
       setCurrentCropInfo({ 
         leftCropFrames: playhead.leftCropFrames || 0, 
         rightCropFrames: playhead.rightCropFrames || 0 
@@ -499,7 +353,7 @@ const TimelinePreview = ({
         const isNewClip = !currentClip || currentClip.character !== character || currentClip.filename !== filename;
         
         if (isNewClip) {
-          console.log('📥 New clip:', character + '/' + filename);
+          // New clip detected
           setCurrentClip(clipData);
           setVideoUrl(videoUrl);
         }
@@ -513,7 +367,7 @@ const TimelinePreview = ({
         // Cache the current frame position for this clip
         const clipKey = `${character}/${filename}`;
         clipFrameCache.current.set(clipKey, playhead.servedFrame);
-        console.log('💾 Cached frame for', clipKey, ':', playhead.servedFrame);
+        // Cached frame for clip
         
         // Seek video immediately for frame-by-frame movement (no debouncing)
         if (videoRef.current && isVideoLoaded && videoRef.current.duration) {
@@ -525,15 +379,7 @@ const TimelinePreview = ({
           const timeDifference = Math.abs(constrainedVideoTime - currentVideoTime);
           
           // Debug logging
-          console.log('🎬 Immediate video seek:', {
-            servedFrame: playhead.servedFrame,
-            calculatedTime: videoTime.toFixed(2) + 's',
-            maxVideoTime: maxVideoTime.toFixed(2) + 's',
-            constrainedTime: constrainedVideoTime.toFixed(2) + 's',
-            currentVideoTime: currentVideoTime.toFixed(2) + 's',
-            timeDifference: timeDifference.toFixed(2) + 's',
-            conversion: `${playhead.servedFrame} / 24 = ${videoTime.toFixed(2)}s`
-          });
+          // Immediate video seek
           
           // Only seek if there's a meaningful difference to prevent unnecessary seeks
           if (timeDifference > 0.05) { // Only seek if difference is more than 50ms
@@ -543,21 +389,16 @@ const TimelinePreview = ({
             setTimeout(() => {
               if (videoRef.current) {
                 const newTime = videoRef.current.currentTime;
-                console.log('🔍 Seek verification:', {
-                  requested: constrainedVideoTime.toFixed(2) + 's',
-                  oldTime: currentVideoTime.toFixed(2) + 's',
-                  actualNewTime: newTime.toFixed(2) + 's',
-                  seekWorked: Math.abs(newTime - constrainedVideoTime) < 0.1
-                });
+                // Seek verification
               }
             }, 5);
           } else {
-            console.log('⏭️ Skipping seek - time difference too small:', timeDifference.toFixed(2) + 's');
+            // Skipping seek - time difference too small
           }
         }
       } else {
         // No active clip
-        console.log('🚫 No active clip - clearing video');
+        // No active clip - clearing video
         setCurrentClip(null);
         setVideoUrl(null);
         setVideoTime(0);
@@ -594,13 +435,13 @@ const TimelinePreview = ({
     // Only log manual changes to reduce spam
     if (isManualChange) {
       // eslint-disable-next-line no-console
-      console.log('🎬 Manual playhead change:', playheadPosition);
+      // Manual playhead change
     }
       
       // If this is a manual change (user clicked) and we're playing, stop playback
       if (isManualChange && isPlaying) {
         // eslint-disable-next-line no-console
-        console.log('⏸️ Manual playhead change detected - stopping playback');
+        // Manual playhead change detected - stopping playback
         setIsPlaying(false);
         isPlayingRef.current = false;
         // No local animation refs to clean up - Timeline handles everything
@@ -709,68 +550,37 @@ const TimelinePreview = ({
                     const maxVideoTime = videoRef.current.duration || 0;
                     const constrainedTime = Math.min(cachedVideoTime, maxVideoTime);
                     
-                    console.log('🚀 Immediate seek to cached frame:', {
-                      clipKey,
-                      cachedFrame,
-                      cachedVideoTime: cachedVideoTime.toFixed(2) + 's',
-                      constrainedTime: constrainedTime.toFixed(2) + 's',
-                      maxVideoTime: maxVideoTime.toFixed(2) + 's'
-                    });
+                    // Immediate seek to cached frame
                     
                     videoRef.current.currentTime = constrainedTime;
-                    setVideoTime(constrainedTime);
+                    // Don't update setVideoTime here - only playheadUpdate should update it
                     
                     // Show video after seeking to cached position
                     videoRef.current.style.opacity = '1';
                   } else {
-                    console.log('⚠️ No cached frame for', clipKey, '- showing from beginning');
+                    // No cached frame for clip - showing from beginning
                     // Show video even if no cache
                     videoRef.current.style.opacity = '1';
                   }
                 }
               }}
               onError={(e) => {
-                // eslint-disable-next-line no-console
-                console.error('❌ Video failed to load:', {
-                  src: e.target.src,
-                  clip: currentClip,
-                  error: e
-                });
+                // Video failed to load
               }}
               onTimeUpdate={() => {
-                if (videoRef.current) {
-                  setVideoTime(videoRef.current.currentTime);
-                }
+                // Don't update videoTime from video element - only use playhead data
+                // setVideoTime is only updated by playheadUpdate events
               }}
               onSeeked={() => {
-                // eslint-disable-next-line no-console
-                console.log('🎯 Video seeked successfully to:', videoRef.current?.currentTime?.toFixed(2) + 's');
-                // eslint-disable-next-line no-console
-                console.log('🎯 Seeked event fired - video should now show frame');
-                // eslint-disable-next-line no-console
-                console.log('🎯 Video element state:', {
-                  currentTime: videoRef.current?.currentTime,
-                  duration: videoRef.current?.duration,
-                  paused: videoRef.current?.paused,
-                  readyState: videoRef.current?.readyState,
-                  videoWidth: videoRef.current?.videoWidth,
-                  videoHeight: videoRef.current?.videoHeight
-                });
+                // Video seeked successfully
+                // Seeked event fired - video should now show frame
+                // Video element state
                 
                 // Check if we can see the video element in the DOM
                 const videoElement = videoRef.current;
                 if (videoElement) {
                   const rect = videoElement.getBoundingClientRect();
-                  // eslint-disable-next-line no-console
-                  console.log('🎯 Video element position:', {
-                    visible: rect.width > 0 && rect.height > 0,
-                    width: rect.width,
-                    height: rect.height,
-                    top: rect.top,
-                    left: rect.left,
-                    display: window.getComputedStyle(videoElement).display,
-                    visibility: window.getComputedStyle(videoElement).visibility
-                  });
+                  // Video element position
                 }
               }}
               onCanPlay={() => {
@@ -792,15 +602,15 @@ const TimelinePreview = ({
                     
                     if (videoTime !== null && videoRef.current) {
                       // eslint-disable-next-line no-console
-                      console.log('🎬 CAN PLAY SEEK (manual):', videoTime);
+                      // CAN PLAY SEEK (manual)
                       videoRef.current.currentTime = videoTime;
-                      setVideoTime(videoTime);
+                      // Don't update setVideoTime here - only playheadUpdate should update it
                       window.lastCanPlaySeek = window.lastShowFrameEvent.timelinePosition;
                     }
                   }
                 } else if (isPlayingRef.current) {
                   // eslint-disable-next-line no-console
-                  console.log('🎬 Video can play during playback - skipping auto-seek');
+                  // Video can play during playback - skipping auto-seek
                 }
               }}
             />

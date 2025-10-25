@@ -47,7 +47,7 @@ const LazyDuration = ({ clip }) => {
           setIsLoading(false);
         })
         .catch(error => {
-          console.error('Error fetching duration:', error);
+          // Error fetching duration
           setHasError(true);
           setIsLoading(false);
         });
@@ -465,14 +465,14 @@ export default function ClipList({ onClipSelect }) {
         onClipSelect(clip);
       }
     } catch (error) {
-      console.error('Error in handleClipClick:', error);
+      // Error in handleClipClick
     }
   };
 
   const handleMouseDown = (e, clip) => {
     // Check if currentTarget exists
     if (!e.currentTarget) {
-      console.error('currentTarget is null in handleMouseDown');
+      // currentTarget is null in handleMouseDown
       return;
     }
     
@@ -523,7 +523,7 @@ export default function ClipList({ onClipSelect }) {
               durationInSeconds = parseDurationToSeconds(data.duration);
             }
           } catch (error) {
-            console.error('Error fetching duration:', error);
+            // Error fetching duration
           }
         }
         
@@ -609,7 +609,7 @@ export default function ClipList({ onClipSelect }) {
   };
 
   const handleContextMenuAction = (action, clip) => {
-    console.log(`${action} for clip:`, clip);
+    // Action for clip
     setContextMenu(null);
     // TODO: Implement actual actions
   };
@@ -992,7 +992,7 @@ export default function ClipList({ onClipSelect }) {
                             }}
                             onClick={(e) => {
                               e.stopPropagation();
-                              console.log("Triangle clicked!");
+                              // Triangle clicked
                               toggleColumns();
                             }}
                           >◀</span>
