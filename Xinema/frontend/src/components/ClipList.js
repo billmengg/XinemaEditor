@@ -240,7 +240,10 @@ export default function ClipList({ onClipSelect }) {
   const [dragPosition, setDragPosition] = useState({ x: 0, y: 0 });
   const [isOverTimeline, setIsOverTimeline] = useState(false);
   const [dragEndTime, setDragEndTime] = useState(0); // Track when drag ended
+  
   const [isDragDebounced, setIsDragDebounced] = useState(false); // Prevent rapid drag operations
+  const isDraggingRef = useRef(false); // Track actual drag state
+  const dragLockRef = useRef(false); // Prevent concurrent drag starts
 
   // Function to convert duration string to seconds
   const parseDurationToSeconds = (durationStr) => {
@@ -270,6 +273,8 @@ export default function ClipList({ onClipSelect }) {
   useEffect(() => {
     return () => {
       // Reset drag state when component unmounts
+      isDraggingRef.current = false;
+      dragLockRef.current = false;
       setDraggedClip(null);
       setIsDragging(false);
       setDragOffset({ x: 0, y: 0 });
@@ -283,6 +288,8 @@ export default function ClipList({ onClipSelect }) {
   useEffect(() => {
     const handleWindowBlur = () => {
       if (isDragging) {
+        isDraggingRef.current = false;
+        dragLockRef.current = false;
         setDraggedClip(null);
         setIsDragging(false);
         setDragOffset({ x: 0, y: 0 });
@@ -299,7 +306,10 @@ export default function ClipList({ onClipSelect }) {
   // Listen for successful clip placement to immediately reset drag state
   useEffect(() => {
     const handleClipPlacementSuccess = () => {
+      console.log('✅ CLIP PLACED on timeline at', new Date().toLocaleTimeString());
       // Immediately reset all drag state when clip is successfully placed
+      isDraggingRef.current = false;
+      dragLockRef.current = false; // Release the lock
       setDraggedClip(null);
       setIsDragging(false);
       setDragOffset({ x: 0, y: 0 });
@@ -359,12 +369,43 @@ export default function ClipList({ onClipSelect }) {
 
     const handleMouseUp = (e) => {
       if (isDragging && draggedClip) {
+        const mouseX = e.clientX;
+        const mouseY = e.clientY;
+        
+        // CRITICAL: Check if mouse is CURRENTLY over ClipList - if so, don't place the clip
+        const clipListContainer = document.querySelector('.clip-list-container');
+        const clipListRect = clipListContainer?.getBoundingClientRect();
+        const isCurrentlyOverClipList = clipListRect && 
+          mouseX >= clipListRect.left && 
+          mouseX <= clipListRect.right &&
+          mouseY >= clipListRect.top && 
+          mouseY <= clipListRect.bottom;
+        
+        if (isCurrentlyOverClipList) {
+          console.log('⚠️ Mouse is over ClipList - not placing clip');
+          // Just reset drag state, don't place the clip
+          isDraggingRef.current = false;
+          dragLockRef.current = false;
+          setDraggedClip(null);
+          setIsDragging(false);
+          setDragOffset({ x: 0, y: 0 });
+          setDragPosition({ x: 0, y: 0 });
+          setIsOverTimeline(false);
+          setDragEndTime(Date.now());
+          
+          // Clear any existing drag preview on timeline
+          const timelineElement2 = document.querySelector('.timeline-content');
+          if (timelineElement2) {
+            const clearEvent = new CustomEvent('timelineDragClear');
+            timelineElement2.dispatchEvent(clearEvent);
+          }
+          return;
+        }
+        
         // Check if dropping over timeline
         const timelineElement = document.querySelector('.timeline-content');
         if (timelineElement) {
           const timelineRect = timelineElement.getBoundingClientRect();
-          const mouseX = e.clientX;
-          const mouseY = e.clientY;
           
           // Check if mouse is over timeline area
           if (mouseX >= timelineRect.left && mouseX <= timelineRect.right &&
@@ -409,6 +450,9 @@ export default function ClipList({ onClipSelect }) {
         }
         
         // Reset all drag state
+        console.log('⏹️ DRAG ENDED:', draggedClip?.id, 'at', new Date().toLocaleTimeString());
+        isDraggingRef.current = false;
+        dragLockRef.current = false; // Release the lock
         setDraggedClip(null);
         setIsDragging(false);
         setDragOffset({ x: 0, y: 0 });
@@ -477,7 +521,7 @@ export default function ClipList({ onClipSelect }) {
     }
     
     // Prevent starting new drag if one is already in progress
-    if (isDragging) {
+    if (isDragging || isDraggingRef.current || dragLockRef.current) {
       return;
     }
     
@@ -492,12 +536,35 @@ export default function ClipList({ onClipSelect }) {
     const startY = e.clientY;
     
     const handleMouseMove = async (moveEvent) => {
+      // Early return if already dragging - prevents duplicate drag starts
+      if (isDraggingRef.current || dragLockRef.current) {
+        return;
+      }
+      
       const deltaX = Math.abs(moveEvent.clientX - startX);
       const deltaY = Math.abs(moveEvent.clientY - startY);
       
       // If mouse moved more than 5 pixels, start drag operation
       if (deltaX > 5 || deltaY > 5) {
         e.preventDefault(); // Only prevent default when actually dragging
+        
+        // SET THE LOCK IMMEDIATELY to prevent concurrent drag starts
+        dragLockRef.current = true;
+        isDraggingRef.current = true;
+        
+        // Verify mousedown was inside ClipList container (prevent accidental drags from other UI)
+        const clipListContainer = document.querySelector('.clip-list-container');
+        const clipListRect = clipListContainer?.getBoundingClientRect();
+        const isInsideClipList = clipListRect && 
+          e.clientX >= clipListRect.left && 
+          e.clientX <= clipListRect.right &&
+          e.clientY >= clipListRect.top && 
+          e.clientY <= clipListRect.bottom;
+        
+        if (!isInsideClipList) {
+          console.log('⚠️ Mousedown outside ClipList - not starting drag');
+          return;
+        }
         
         // Clear any existing drag preview on timeline and capture playhead position
         const timelineElement = document.querySelector('.timeline-content');
@@ -535,6 +602,8 @@ export default function ClipList({ onClipSelect }) {
         };
         
         setDraggedClip(clipWithDuration);
+        console.log('▶️ DRAG STARTED:', clipWithDuration.id, 'at', new Date().toLocaleTimeString());
+        // isDraggingRef and dragLockRef already set above
         setIsDragging(true);
         
         // Request timeline to take snapshot of magnetic points
@@ -579,7 +648,9 @@ export default function ClipList({ onClipSelect }) {
       document.removeEventListener('mouseup', handleMouseUp);
       
       // Always reset drag state to prevent stuck states
-      if (isDragging) {
+      if (isDragging || isDraggingRef.current) {
+        isDraggingRef.current = false;
+        dragLockRef.current = false;
         setDraggedClip(null);
         setIsDragging(false);
         setDragOffset({ x: 0, y: 0 });
@@ -619,6 +690,7 @@ export default function ClipList({ onClipSelect }) {
 
   return (
     <div 
+      className="clip-list-container"
       style={{ height: "100%", display: "flex", position: "relative", width: "100%" }}
     >
       {/* Drag Preview */}

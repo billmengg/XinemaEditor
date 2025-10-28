@@ -25,6 +25,7 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
   const [isTrimming, setIsTrimming] = useState(false); // Track if we're trimming a clip
   const [trimHandle, setTrimHandle] = useState(null); // Track which handle is being trimmed ('start' or 'end')
   const [trimmingClip, setTrimmingClip] = useState(null); // Track which clip is being trimmed
+  const [isMagneticDeleteActive, setIsMagneticDeleteActive] = useState(false); // Track if we're in magnetic delete mode
   
   // Cache for pre-extraction timing
   const preExtractionCache = useRef(new Map());
@@ -119,9 +120,9 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
       Math.abs(playheadPosition - window.lastPlayheadExtractedFrame) >= frameThreshold;
     
     if (shouldExtract) {
-      // Automatically extract frame when playhead moves during playback
-      // This ensures frame preview works naturally with playback
-      extractSingleFrame(playheadPosition);
+    // Automatically extract frame when playhead moves during playback
+    // This ensures frame preview works naturally with playback
+    extractSingleFrame(playheadPosition);
       window.lastPlayheadExtractedFrame = playheadPosition;
     }
     };
@@ -1706,8 +1707,8 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
       if (isPlaying) {
         // Only extract frame every 4 frames during playback to reduce conflicts
         if (Math.floor(smoothPlayheadPosition) % 4 === 0) {
-          extractSingleFrame(smoothPlayheadPosition);
-        }
+      extractSingleFrame(smoothPlayheadPosition);
+    }
       } else {
         // Only extract frame when there's a meaningful change (at least 1 frame difference)
         // This prevents continuous extraction when playhead position changes slightly due to floating point precision
@@ -1762,13 +1763,13 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
         Math.abs(smoothPlayheadPosition - window.lastDragExtractedFrame) >= frameThreshold;
       
       if (shouldExtract) {
-        // Small delay to ensure playhead position is settled
-        const timeoutId = setTimeout(() => {
-          extractSingleFrame(smoothPlayheadPosition);
+      // Small delay to ensure playhead position is settled
+      const timeoutId = setTimeout(() => {
+        extractSingleFrame(smoothPlayheadPosition);
           window.lastDragExtractedFrame = smoothPlayheadPosition;
-        }, 50);
-        
-        return () => clearTimeout(timeoutId);
+      }, 50);
+      
+      return () => clearTimeout(timeoutId);
       }
     }
   }, [isDraggingPlayhead, isDraggingClip, smoothPlayheadPosition, timelineClips.length]);
@@ -1991,6 +1992,9 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
     let newStartFrames = currentClip.instanceStartFrames ?? currentClip.startFrames;
     let newEndFrames = currentClip.instanceEndFrames ?? currentClip.endFrames;
     
+    // Calculate preview width for magnetic delete detection
+    let previewWidth = currentClip.endFrames - currentClip.startFrames;
+    
     if (trimHandle === 'start') {
       // For left crop, visual position should snap to magnetic points but respect crop limits
       const instanceStart = currentClip.instanceStartFrames ?? currentClip.startFrames;
@@ -2011,6 +2015,9 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
       // For end frames, maintain right crop: instanceEnd - rightCropFrames
       const instanceEnd = currentClip.instanceEndFrames ?? currentClip.endFrames;
       newEndFrames = instanceEnd - rightCropFrames;
+      
+      // Calculate preview width for delete detection
+      previewWidth = newEndFrames - newStartFrames;
     }
     
     if (trimHandle === 'end') {
@@ -2033,8 +2040,18 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
       // For start frames, maintain left crop: instanceStart + leftCropFrames
       const instanceStart = currentClip.instanceStartFrames ?? currentClip.startFrames;
       newStartFrames = instanceStart + leftCropFrames;
+      
+      // Calculate preview width for delete detection
+      previewWidth = newEndFrames - newStartFrames;
     }
     
+    // Magnetic delete detection - check if the clip width is getting too small
+    const MAGNETIC_DELETE_THRESHOLD = 120; // frames (2 seconds at 60fps)
+    const MAGNETIC_DELETE_TRIGGER = MAGNETIC_DELETE_THRESHOLD / 2; // 60 frames
+    const shouldDelete = previewWidth < MAGNETIC_DELETE_TRIGGER;
+    
+    // Update magnetic delete state
+    setIsMagneticDeleteActive(shouldDelete);
     
     // Update the trimming clip - keep the original timeline position but store crop info
     setTrimmingClip(prev => {
@@ -2073,6 +2090,18 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
   // Handle trim handle mouse up
   const handleTrimHandleMouseUp = () => {
     if (!isTrimming || !trimmingClip) return;
+    
+    // If in magnetic delete mode, delete the clip instead of trimming
+    if (isMagneticDeleteActive) {
+      setTimelineClips(prev => prev.filter(clip => clip.id !== trimmingClip.id));
+      
+      // Clean up trim state
+      setIsTrimming(false);
+      setTrimHandle(null);
+      setTrimmingClip(null);
+      setIsMagneticDeleteActive(false);
+      return;
+    }
     
     // Apply trim changes
     
@@ -2201,6 +2230,7 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
     setIsTrimming(false);
     setTrimHandle(null);
     setTrimmingClip(null);
+    setIsMagneticDeleteActive(false);
     
     // Refresh frame preview to show correct clip after trimming
     // This ensures the preview updates to show the clip on the highest track
@@ -2323,7 +2353,7 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
             position: gridAlignedPosition,
             servedFrame: servedFrame24fps,
             activeClip: {
-              character: activeClip.character,
+          character: activeClip.character,
               filename: activeClip.filename
             },
             leftCropFrames: leftCropFrames24fps,
@@ -2467,6 +2497,8 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
       
       
       const handleTimelineDropEvent = (e) => {
+        console.log('📍 CLIP PLACEMENT STARTED:', e.detail.clip?.id, 'at', new Date().toLocaleTimeString());
+        
         const { clip, clientX, clientY, track } = e.detail;
         const timelineRect = timelineElement.getBoundingClientRect();
         const dropX = clientX - timelineRect.left;
@@ -2526,8 +2558,8 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
                   const visualWidthFrames = visualEndFrames - visualStartFrames;
                   
                   return {
-                    ...timelineClip,
-                    track: targetTrack,
+                      ...timelineClip,
+                      track: targetTrack,
                     
                     // Instance data (actual clip boundaries - same as original positions)
                     instanceStartFrames: newOriginalStart,
@@ -3182,6 +3214,54 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
       
       document.addEventListener('mouseup', handleTimelineClipMouseUp);
       
+      // Track mouse movement to distinguish between click and drag
+      let mouseDownX = null;
+      let mouseDownY = null;
+      let mouseMoved = false;
+      const MOVE_THRESHOLD = 3; // pixels of movement before considering it a drag
+      
+      // Add global click listeners to detect left click press and release
+      const handleGlobalClick = (e) => {
+        if (e.button === 0) {
+          const moved = mouseMoved || 
+                        (mouseDownX !== null && mouseDownY !== null &&
+                         (Math.abs(e.clientX - mouseDownX) > MOVE_THRESHOLD || 
+                          Math.abs(e.clientY - mouseDownY) > MOVE_THRESHOLD));
+          console.log(moved ? '🖱️ CLICK RELEASE (was dragging)' : '🖱️ NORMAL CLICK', 'at', new Date().toLocaleTimeString());
+          
+          // Reset
+          mouseDownX = null;
+          mouseDownY = null;
+          mouseMoved = false;
+        }
+      };
+      
+      const handleGlobalMouseDown = (e) => {
+        // Only log if this is a left mouse button press (button 0)
+        if (e.button === 0) {
+          
+          // Track initial position
+          mouseDownX = e.clientX;
+          mouseDownY = e.clientY;
+          mouseMoved = false;
+        }
+      };
+      
+      const handleGlobalMouseMove = (e) => {
+        // Check if mouse has moved significantly since mousedown
+        if (mouseDownX !== null && mouseDownY !== null) {
+          const moved = Math.abs(e.clientX - mouseDownX) > MOVE_THRESHOLD || 
+                       Math.abs(e.clientY - mouseDownY) > MOVE_THRESHOLD;
+          if (moved && !mouseMoved) {
+            mouseMoved = true;
+          }
+        }
+      };
+      
+      document.addEventListener('click', handleGlobalClick);
+      document.addEventListener('mousedown', handleGlobalMouseDown);
+      document.addEventListener('mousemove', handleGlobalMouseMove);
+      
       return () => {
         timelineElement.removeEventListener('timelineDrop', handleTimelineDropEvent);
         timelineElement.removeEventListener('dragover', handleTimelineDragOver);
@@ -3192,6 +3272,9 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
         timelineElement.removeEventListener('requestPlayheadPosition', handlePlayheadRequest);
         document.removeEventListener('mousemove', handleTimelineClipMouseMove);
         document.removeEventListener('mouseup', handleTimelineClipMouseUp);
+        document.removeEventListener('click', handleGlobalClick);
+        document.removeEventListener('mousedown', handleGlobalMouseDown);
+        document.removeEventListener('mousemove', handleGlobalMouseMove);
         // No snapshot event listener to remove
         
       };
@@ -3450,25 +3533,25 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
                      </div>
                      <div>startFrames: {clip.startFrames} ({formatTimeFromFrames(clip.startFrames)}) 
                        {(clip.leftCropFrames ?? 0) > 0 && ` (orig: ${(clip.originalStart ?? (clip.instanceStartFrames ?? clip.startFrames))} + ${clip.leftCropFrames ?? 0})`}
-                       {clip.lastDragOffset && ` <span style={{ color: "#00ff00" }}>(+${clip.lastDragOffset})</span>`}
+                       {clip.lastDragOffset && <span style={{ color: "#00ff00" }}>(+{clip.lastDragOffset})</span>}
                      </div>
                      <div>endFrames: {clip.endFrames} ({formatTimeFromFrames(clip.endFrames)}) 
                        {(clip.rightCropFrames ?? 0) > 0 && ` (orig: ${(clip.originalEnd ?? (clip.instanceEndFrames ?? clip.endFrames))} - ${clip.rightCropFrames ?? 0})`}
-                       {clip.lastDragOffset && ` <span style={{ color: "#00ff00" }}>(+${clip.lastDragOffset})</span>`}
+                       {clip.lastDragOffset && <span style={{ color: "#00ff00" }}>(+{clip.lastDragOffset})</span>}
                      </div>
                      <div>Duration Frames: {clip.endFrames - clip.startFrames}
-                       {clip.lastDragOffset && ` <span style={{ color: "#00ff00" }}>(+0)</span>`}
+                       {clip.lastDragOffset && <span style={{ color: "#00ff00" }}>(+0)</span>}
                      </div>
                      <div>startPixel: {clip.startPixel}px
                        {(clip.leftCropFrames ?? 0) > 0 && ` (orig: ${framesToPixels(clip.originalStart ?? (clip.instanceStartFrames ?? clip.startFrames))} + ${framesToPixels(clip.leftCropFrames ?? 0)})`}
-                       {clip.lastDragOffset && ` <span style={{ color: "#00ff00" }}>(+${framesToPixels(clip.lastDragOffset)})</span>`}
+                       {clip.lastDragOffset && <span style={{ color: "#00ff00" }}>(+{framesToPixels(clip.lastDragOffset)})</span>}
                      </div>
                      <div>endPixel: {clip.endPixel}px
                        {(clip.rightCropFrames ?? 0) > 0 && ` (orig: ${framesToPixels(clip.originalEnd ?? (clip.instanceEndFrames ?? clip.endFrames))} - ${framesToPixels(clip.rightCropFrames ?? 0)})`}
-                       {clip.lastDragOffset && ` <span style={{ color: "#00ff00" }}>(+${framesToPixels(clip.lastDragOffset)})</span>`}
+                       {clip.lastDragOffset && <span style={{ color: "#00ff00" }}>(+{framesToPixels(clip.lastDragOffset)})</span>}
                      </div>
                      <div>widthPixel: {clip.widthPixel}px
-                       {clip.lastDragOffset && ` <span style={{ color: "#00ff00" }}>(+0)</span>`}
+                       {clip.lastDragOffset && <span style={{ color: "#00ff00" }}>(+0)</span>}
                      </div>
                    </div>
                    
@@ -3478,19 +3561,19 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
                        🔧 Instance Data (clip.instanceStartFrames/instanceEndFrames)
                      </div>
                      <div>instanceStartFrames: {clip.instanceStartFrames ?? clip.startFrames}
-                       {clip.lastDragOffset && ` <span style={{ color: "#00ff00" }}>(+${clip.lastDragOffset})</span>`}
+                       {clip.lastDragOffset && <span style={{ color: "#00ff00" }}>(+{clip.lastDragOffset})</span>}
                      </div>
                      <div>instanceEndFrames: {clip.instanceEndFrames ?? clip.endFrames}
-                       {clip.lastDragOffset && ` <span style={{ color: "#00ff00" }}>(+${clip.lastDragOffset})</span>`}
+                       {clip.lastDragOffset && <span style={{ color: "#00ff00" }}>(+{clip.lastDragOffset})</span>}
                      </div>
                      <div>instanceStartPixel: {clip.instanceStartPixel ?? clip.startPixel}px
-                       {clip.lastDragOffset && ` <span style={{ color: "#00ff00" }}>(+${framesToPixels(clip.lastDragOffset)})</span>`}
+                       {clip.lastDragOffset && <span style={{ color: "#00ff00" }}>(+{framesToPixels(clip.lastDragOffset)})</span>}
                      </div>
                      <div>instanceEndPixel: {clip.instanceEndPixel ?? clip.endPixel}px
-                       {clip.lastDragOffset && ` <span style={{ color: "#00ff00" }}>(+${framesToPixels(clip.lastDragOffset)})</span>`}
+                       {clip.lastDragOffset && <span style={{ color: "#00ff00" }}>(+{framesToPixels(clip.lastDragOffset)})</span>}
                      </div>
                      <div>instanceWidthPixel: {clip.instanceWidthPixel ?? clip.widthPixel}px
-                       {clip.lastDragOffset && ` <span style={{ color: "#00ff00" }}>(+0)</span>`}
+                       {clip.lastDragOffset && <span style={{ color: "#00ff00" }}>(+0)</span>}
                      </div>
                    </div>
                    
@@ -3500,10 +3583,10 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
                        📍 Original Position References (clip.originalStart/originalEnd)
                      </div>
                      <div>originalStart: {clip.originalStart ?? (clip.instanceStartFrames ?? clip.startFrames)}
-                       {clip.lastDragOffset && ` <span style={{ color: "#00ff00" }}>(+${clip.lastDragOffset})</span>`}
+                       {clip.lastDragOffset && <span style={{ color: "#00ff00" }}>(+{clip.lastDragOffset})</span>}
                      </div>
                      <div>originalEnd: {clip.originalEnd ?? (clip.instanceEndFrames ?? clip.endFrames)}
-                       {clip.lastDragOffset && ` <span style={{ color: "#00ff00" }}>(+${clip.lastDragOffset})</span>`}
+                       {clip.lastDragOffset && <span style={{ color: "#00ff00" }}>(+{clip.lastDragOffset})</span>}
                      </div>
                    </div>
                    
@@ -3836,138 +3919,143 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
                    
                    
                    return (
-                     <div
-                       key={clip.id}
-                       data-clip-id={clip.id}
-                       onClick={(e) => {
-                         e.stopPropagation(); // Prevent timeline click
+                   <div
+                     key={clip.id}
+                     data-clip-id={clip.id}
+                     onClick={(e) => {
+                       e.stopPropagation(); // Prevent timeline click
                          // Timeline clip clicked
-                         // Pass clip data to parent component for preview
-                         if (onClipSelect && typeof onClipSelect === 'function') {
-                           onClipSelect(clip);
-                         }
+                       // Pass clip data to parent component for preview
+                       if (onClipSelect && typeof onClipSelect === 'function') {
+                         onClipSelect(clip);
+                       }
                          
                          // Trigger frame generation for the selected clip at current playhead position
                          setTimeout(() => {
                            extractSingleFrame(playheadPosition);
                          }, 50);
-                       }}
-                       onMouseDown={(e) => {
-                         e.stopPropagation(); // Prevent timeline click
+                     }}
+                     onMouseDown={(e) => {
+                       e.stopPropagation(); // Prevent timeline click
                          // Timeline clip mouse down
-                         
-                         // Start drag operation (same as ClipList)
-                         setIsDraggingClip(true);
+                       
+                       // Start drag operation (same as ClipList)
+                       setIsDraggingClip(true);
                          
                          // Trigger frame generation when timeline clip drag starts
                          setTimeout(() => {
                            extractSingleFrame(playheadPosition);
                          }, 50);
                          
-                        setDragPreview({
-                          ...clip,
-                          track: clip.track,
-                          startPixel: clip.startPixel,
-                          endPixel: clip.endPixel,
-                          widthPixel: clip.widthPixel
-                        });
-                         
-                         // Remove old magnetic points for this clip (EXACT same as cliplist)
-                         setMagneticPoints(prev => {
-                           const newMap = new Map(prev);
-                           // Remove old magnetic points for this clip
-                           for (const [key, value] of newMap.entries()) {
-                             if (value.track === clip.track && 
-                                 (value.frame === clip.startFrames + pixelsToFrames(MAGNETIC_OFFSET_PIXELS) ||
-                                  value.frame === clip.endFrames + pixelsToFrames(MAGNETIC_OFFSET_PIXELS))) {
-                               newMap.delete(key);
-                             }
-                           }
-                           return newMap;
-                         });
-                       }}
-                       onMouseEnter={(e) => {
-                         e.target.style.background = "#0056b3"; // Darker blue on hover
-                         e.target.style.transform = "scale(1.02)"; // Slight scale up
-                         // Keep black border if selected
-                         if (selectedClip?.id === clip.id) {
-                           e.target.style.border = "2px solid #000000";
-                         }
-                       }}
-                       onMouseLeave={(e) => {
-                         e.target.style.background = "#007bff"; // Back to original blue
-                         e.target.style.transform = "scale(1)"; // Back to original size
-                         // Restore proper border based on selection state
-                         if (selectedClip?.id === clip.id) {
-                           e.target.style.border = "2px solid #000000";
-                         } else {
-                           e.target.style.border = "1px solid #0056b3";
-                         }
-                       }}
-                       style={{
-                         position: "absolute",
-                         left: `${framesToPixels(displayClip.startFrames)}px`,
-                         top: "5px",
-                         bottom: "5px",
-                         width: `${framesToPixels(displayClip.endFrames) - framesToPixels(displayClip.startFrames)}px`,
-                         background: "#007bff",
-                         border: selectedClip?.id === clip.id ? "2px solid #000000" : "1px solid #0056b3",
-                         borderRadius: "3px",
-                         display: "flex",
-                         alignItems: "center",
-                         justifyContent: "center",
-                         color: "white",
-                         fontSize: "10px",
-                         fontWeight: "600",
-                         cursor: "pointer",
-                         userSelect: "none",
-                         transition: "all 0.2s ease"
-                       }}
-                       title={`${clip.character} - ${clip.filename} (${clip.duration}s, ${clip.widthPixel}px wide) - Click to preview`}
-                     >
-                       {clip.character}
+                       setDragPreview({
+                         ...clip,
+                         track: clip.track,
+                         startPixel: clip.startPixel,
+                         endPixel: clip.endPixel,
+                         widthPixel: clip.widthPixel
+                       });
                        
-                       {/* Start Trim Handle */}
+                       // Remove old magnetic points for this clip (EXACT same as cliplist)
+                       setMagneticPoints(prev => {
+                         const newMap = new Map(prev);
+                         // Remove old magnetic points for this clip
+                         for (const [key, value] of newMap.entries()) {
+                           if (value.track === clip.track && 
+                               (value.frame === clip.startFrames + pixelsToFrames(MAGNETIC_OFFSET_PIXELS) ||
+                                value.frame === clip.endFrames + pixelsToFrames(MAGNETIC_OFFSET_PIXELS))) {
+                             newMap.delete(key);
+                           }
+                         }
+                         return newMap;
+                       });
+                     }}
+                     onMouseEnter={(e) => {
+                       e.target.style.background = "#0056b3"; // Darker blue on hover
+                       e.target.style.transform = "scale(1.02)"; // Slight scale up
+                       // Keep black border if selected
+                       if (selectedClip?.id === clip.id) {
+                         e.target.style.border = "2px solid #000000";
+                       }
+                     }}
+                     onMouseLeave={(e) => {
+                       e.target.style.background = "#007bff"; // Back to original blue
+                       e.target.style.transform = "scale(1)"; // Back to original size
+                       // Restore proper border based on selection state
+                       if (selectedClip?.id === clip.id) {
+                         e.target.style.border = "2px solid #000000";
+                       } else {
+                         e.target.style.border = "1px solid #0056b3";
+                       }
+                     }}
+                     style={{
+                       position: "absolute",
+                         left: `${framesToPixels(displayClip.startFrames)}px`,
+                       top: "5px",
+                       bottom: "5px",
+                         width: `${framesToPixels(displayClip.endFrames) - framesToPixels(displayClip.startFrames)}px`,
+                       background: "#007bff",
+                       border: selectedClip?.id === clip.id ? "2px solid #000000" : "1px solid #0056b3",
+                       borderRadius: "3px",
+                       display: "flex",
+                       alignItems: "center",
+                       justifyContent: "center",
+                       color: "white",
+                       fontSize: "10px",
+                       fontWeight: "600",
+                       cursor: "pointer",
+                       userSelect: "none",
+                       transition: "all 0.2s ease"
+                     }}
+                     title={`${clip.character} - ${clip.filename} (${clip.duration}s, ${clip.widthPixel}px wide) - Click to preview`}
+                   >
+                     {clip.character}
+                       
+                       {/* Start Trim Handle - Left Bracket */}
                        <div
                          style={{
                            position: "absolute",
-                           left: "-3px",
-                           top: "0",
-                           bottom: "0",
-                           width: "6px",
-                           background: selectedClip?.id === clip.id ? "#ff6b6b" : "#ff9999",
-                           borderRadius: "3px 0 0 3px",
+                           left: "0px",
+                           top: "2px",
+                           bottom: "2px",
+                           width: "3px",
+                           borderLeft: selectedClip?.id === clip.id ? "2px solid #ff6b6b" : "2px solid #ff9999",
+                           borderTop: selectedClip?.id === clip.id ? "2px solid #ff6b6b" : "2px solid #ff9999",
+                           borderBottom: selectedClip?.id === clip.id ? "2px solid #ff6b6b" : "2px solid #ff9999",
+                           borderRight: "none",
                            cursor: "ew-resize",
-                           opacity: 1,
-                           transition: "opacity 0.2s ease, background 0.2s ease",
+                           opacity: isMagneticDeleteActive && trimHandle === 'start' && (trimmingClip?.id === clip.id) ? 0 : 1,
+                           transition: "opacity 0.2s ease",
                            zIndex: 10
                          }}
                          onMouseDown={(e) => handleTrimHandleMouseDown(e, clip, 'start')}
                          onMouseEnter={(e) => {
-                           e.target.style.background = "#ff5252";
-                           e.target.style.width = "8px";
-                           e.target.style.left = "-4px";
+                           e.target.style.borderLeftColor = "#ff5252";
+                           e.target.style.borderTopColor = "#ff5252";
+                           e.target.style.borderBottomColor = "#ff5252";
                          }}
                          onMouseLeave={(e) => {
-                           e.target.style.background = "#ff6b6b";
-                           e.target.style.width = "6px";
-                           e.target.style.left = "-3px";
+                           const color = selectedClip?.id === clip.id ? "#ff6b6b" : "#ff9999";
+                           e.target.style.borderLeftColor = color;
+                           e.target.style.borderTopColor = color;
+                           e.target.style.borderBottomColor = color;
                          }}
                        />
                        
-                       {/* End Trim Handle */}
+                       {/* End Trim Handle - Right Bracket */}
                        <div
                          style={{
                            position: "absolute",
-                           right: "-3px",
-                           top: "0",
-                           bottom: "0",
-                           width: "6px",
-                           background: selectedClip?.id === clip.id ? "#ff6b6b" : "#ff9999",
-                           borderRadius: "0 3px 3px 0",
+                           right: "0px",
+                           top: "2px",
+                           bottom: "2px",
+                           width: "3px",
+                           borderLeft: "none",
+                           borderRight: selectedClip?.id === clip.id ? "2px solid #ff6b6b" : "2px solid #ff9999",
+                           borderTop: selectedClip?.id === clip.id ? "2px solid #ff6b6b" : "2px solid #ff9999",
+                           borderBottom: selectedClip?.id === clip.id ? "2px solid #ff6b6b" : "2px solid #ff9999",
                            cursor: "ew-resize",
-                           opacity: 1,
-                           transition: "opacity 0.2s ease, background 0.2s ease",
+                           opacity: isMagneticDeleteActive && trimHandle === 'end' && (trimmingClip?.id === clip.id) ? 0 : 1,
+                           transition: "opacity 0.2s ease",
                            zIndex: 10
                          }}
                          onMouseDown={(e) => {
@@ -3975,18 +4063,42 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
                            handleTrimHandleMouseDown(e, clip, 'end');
                          }}
                          onMouseEnter={(e) => {
-                           e.target.style.background = "#ff5252";
-                           e.target.style.width = "8px";
-                           e.target.style.right = "-4px";
+                           e.target.style.borderRightColor = "#ff5252";
+                           e.target.style.borderTopColor = "#ff5252";
+                           e.target.style.borderBottomColor = "#ff5252";
                          }}
                          onMouseLeave={(e) => {
-                           e.target.style.background = "#ff6b6b";
-                           e.target.style.width = "6px";
-                           e.target.style.right = "-3px";
+                           const color = selectedClip?.id === clip.id ? "#ff6b6b" : "#ff9999";
+                           e.target.style.borderRightColor = color;
+                           e.target.style.borderTopColor = color;
+                           e.target.style.borderBottomColor = color;
                          }}
                        />
                        
-                     </div>
+                       {/* Magnetic Delete Indicator - thick red line at opposite edge */}
+                       {isMagneticDeleteActive && trimHandle && (trimmingClip?.id === clip.id) && (
+                         <div
+                           style={(() => {
+                             const baseStyle = {
+                               position: "absolute",
+                               top: "0",
+                               bottom: "0",
+                               width: "4px",
+                               background: "#ff0000",
+                               zIndex: 20,
+                               boxShadow: "0 0 10px #ff0000"
+                             };
+                             if (trimHandle === 'start') {
+                               baseStyle.right = "-2px";
+                             } else {
+                               baseStyle.left = "-2px";
+                             }
+                             return baseStyle;
+                           })()}
+                         />
+                       )}
+                       
+                   </div>
                    );
                  })}
                
@@ -4230,18 +4342,18 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
          }[point.type] || point.type;
          
          return (
-           <div
-             key={index}
-             style={{
-               position: "absolute",
-               left: `${76 + framesToPixels(point.frame)}px`,
-               top: "60px",
-               bottom: "0px",
-               width: "3px",
-               background: point.color || "#ff0000",
-               zIndex: 20,
+         <div
+           key={index}
+           style={{
+             position: "absolute",
+             left: `${76 + framesToPixels(point.frame)}px`,
+             top: "60px",
+             bottom: "0px",
+             width: "3px",
+             background: point.color || "#ff0000",
+             zIndex: 20,
                pointerEvents: "auto",
-               opacity: 0.9,
+             opacity: 0.9,
                boxShadow: `0 0 4px ${point.color || "#ff0000"}`,
                cursor: "pointer"
              }}

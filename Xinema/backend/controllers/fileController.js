@@ -807,46 +807,6 @@ const streamFrameDirect = async (req, res) => {
     res.send(placeholder);
     return;
     
-    // Try preview sequence approach (like Premiere)
-    const sequenceKey = `${character}/${decodedFilename}`;
-    let sequence = previewSequences.get(sequenceKey);
-    
-    if (!sequence) {
-      // Generate preview sequence if it doesn't exist
-      sequence = await generatePreviewSequence(character, decodedFilename, videoPath);
-    }
-    
-    if (sequence) {
-      // Use frame number directly (not converted to time)
-      const videoFrameRate = sequence.frameRate;
-      const targetTime = validatedFrameNumber / videoFrameRate;
-      
-      // Get nearest preview frame
-      const nearestFrame = getNearestPreviewFrame(sequence, targetTime);
-      
-      if (nearestFrame) {
-        // If frame data doesn't exist, extract it
-        if (!nearestFrame.data) {
-          try {
-            console.log('🎬 Extracting preview frame:', nearestFrame.frameNumber);
-            nearestFrame.data = await extractPreviewFrame(videoPath, nearestFrame.frameNumber, sequence.frameRate);
-            console.log('✅ Preview frame extracted:', nearestFrame.frameNumber, 'Size:', nearestFrame.data.length);
-          } catch (error) {
-            console.error('❌ Error extracting preview frame:', error);
-            // Fall through to regular extraction
-          }
-        }
-        
-        if (nearestFrame.data) {
-          console.log('⚡ Serving frame from preview sequence:', sequenceKey, 'frame:', nearestFrame.frameNumber);
-          res.setHeader('Content-Type', 'image/png');
-          res.setHeader('Cache-Control', 'public, max-age=300'); // 5 minutes only
-          res.send(nearestFrame.data);
-          return;
-        }
-      }
-    }
-    
     console.log('🎬 Stream frame request:', { 
       character, 
       filename: decodedFilename, 
