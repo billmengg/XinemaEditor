@@ -160,13 +160,13 @@ function App() {
             <div 
               style={{ 
                 padding: '6px 20px', 
-                cursor: (window.editHistoryLength > 0) ? 'pointer' : 'not-allowed',
-                opacity: (window.editHistoryLength > 0) ? '1' : '0.5'
+                cursor: window.canUndo ? 'pointer' : 'not-allowed',
+                opacity: window.canUndo ? '1' : '0.5'
               }} 
-              onMouseEnter={(e) => { if (window.editHistoryLength > 0) e.target.style.background = '#f0f0f0' }} 
+              onMouseEnter={(e) => { if (window.canUndo) e.target.style.background = '#f0f0f0' }} 
               onMouseLeave={(e) => e.target.style.background = 'white'} 
               onClick={() => { 
-                if (window.handleUndo && window.editHistoryLength > 0) {
+                if (window.handleUndo && window.canUndo) {
                   window.handleUndo(); 
                   setOpenMenu(null); 
                 }
@@ -175,7 +175,23 @@ function App() {
               Undo (Ctrl+Z)
             </div>
             <div style={{ borderTop: '1px solid #e0e0e0', margin: '4px 0' }}></div>
-            <div style={{ padding: '6px 20px', cursor: 'pointer' }} onMouseEnter={(e) => e.target.style.background = '#f0f0f0'} onMouseLeave={(e) => e.target.style.background = 'white'} onClick={() => { console.log('Redo'); setOpenMenu(null); }}>Redo</div>
+            <div 
+              style={{ 
+                padding: '6px 20px', 
+                cursor: window.canRedo ? 'pointer' : 'not-allowed',
+                opacity: window.canRedo ? '1' : '0.5'
+              }} 
+              onMouseEnter={(e) => { if (window.canRedo) e.target.style.background = '#f0f0f0' }} 
+              onMouseLeave={(e) => e.target.style.background = 'white'} 
+              onClick={() => { 
+                if (window.handleRedo && window.canRedo) {
+                  window.handleRedo(); 
+                  setOpenMenu(null); 
+                }
+              }}
+            >
+              Redo (Ctrl+Shift+Z)
+            </div>
           </div>
         )}
         <div 
@@ -319,74 +335,277 @@ function EditorLayout() {
          const [timelineZoom, setTimelineZoom] = React.useState(1.0); // Timeline zoom level
          const [playheadPosition, setPlayheadPosition] = React.useState(0); // Playhead position in frames
          const [clipPreviewTab, setClipPreviewTab] = React.useState('preview'); // Clip preview tab
-         const [editHistory, setEditHistory] = React.useState([]); // Edit history log
-         const [clipHistory, setClipHistory] = React.useState([]); // Store clip states for undo
+         const [editHistory, setEditHistory] = React.useState([]); // Edit history log for display (each entry has enabled flag)
+         const [operationHistory, setOperationHistory] = React.useState([]); // Operation history for undo
          const isUndoingRef = React.useRef(false); // Flag to prevent tracking undo operations
          const prevTimelineClipsRef = React.useRef(timelineClips);
+         const historyContainerRef = React.useRef(null); // Ref for history scroll container
 
-  // Helper function to add history entry
-  const addHistoryEntry = (action, details, clipState) => {
+  // Auto-scroll history to bottom when new entries are added
+  React.useEffect(() => {
+    if (historyContainerRef.current && !isUndoingRef.current) {
+      // Scroll to bottom (scrollHeight is the total height, clientHeight is visible height)
+      historyContainerRef.current.scrollTop = historyContainerRef.current.scrollHeight;
+    }
+  }, [editHistory.length]);
+
+  // Helper function to add history entry and operation
+  const addHistoryEntry = (action, details, operation) => {
     const timestamp = new Date().toLocaleTimeString();
-    setEditHistory(prev => [...prev, { timestamp, action, details }]);
-    // Store the clip state before this change for undo - deep copy to preserve nested objects
-    if (clipState) {
-      const deepCopiedClips = JSON.parse(JSON.stringify(clipState));
-      setClipHistory(prev => [...prev, { timestamp, clips: deepCopiedClips }]);
+    // Check if there are any disabled entries before adding new one
+    // If so, mark them as overwritten (greyish-red instead of grey)
+    setEditHistory(prev => {
+      const hasDisabledEntries = prev.some(entry => entry.enabled === false);
+      // Mark disabled entries as overwritten if this is a new edit
+      const updatedPrev = prev.map(entry => 
+        entry.enabled === false ? { ...entry, overwritten: true } : entry
+      );
+      return [...updatedPrev, { timestamp, action, details, enabled: true, overwritten: false }];
+    });
+    // Store operation for undo (operational transform style)
+    if (operation) {
+      setOperationHistory(prev => [...prev, operation]);
     }
   };
 
-  // Undo function - wrapped in useCallback to avoid recreation
+  // Apply an operation to the timeline clips
+  const applyOperation = React.useCallback((operation, isUndo = false) => {
+    setTimelineClips(prev => {
+      let newClips;
+      
+      switch (operation.type) {
+        case '+clip': // Add clip
+          if (isUndo) {
+            // Undo add = remove
+            newClips = prev.filter(clip => clip.id !== operation.clip.id);
+          } else {
+            // Apply add = add clip
+            newClips = [...prev, operation.clip];
+          }
+          break;
+          
+        case '-clip': // Remove clip
+          if (isUndo) {
+            // Undo remove = add back
+            newClips = [...prev, operation.clip];
+          } else {
+            // Apply remove = remove clip
+            newClips = prev.filter(clip => clip.id !== operation.clip.id);
+          }
+          break;
+          
+        case 'move': // Move clip - restore full clip state
+          newClips = prev.map(clip => {
+            if (clip && clip.id === operation.clipId) {
+              if (isUndo) {
+                // Undo move = restore the complete old clip state
+                // This includes all pixel values, instance positions, etc.
+                // Safety check: ensure oldClip exists and has id
+                if (operation.oldClip && operation.oldClip.id) {
+                  return operation.oldClip;
+                }
+                // Fallback: return original clip if oldClip is invalid
+                return clip;
+              } else {
+                // Apply move = restore the new clip state (for redo)
+                if (operation.newClip && operation.newClip.id) {
+                  return operation.newClip;
+                }
+                // Fallback: return original clip if newClip is invalid
+                return clip;
+              }
+            }
+            return clip;
+          }).filter(clip => clip != null); // Remove any null/undefined entries
+          break;
+          
+        case '~clip': // Modify clip (crop)
+          newClips = prev.map(clip => {
+            if (clip.id === operation.clipId) {
+              if (isUndo) {
+                // Undo modify = restore old values
+                // Filter out undefined values to avoid overwriting with undefined
+                const filteredOldValues = Object.fromEntries(
+                  Object.entries(operation.oldValues).filter(([_, value]) => value !== undefined)
+                );
+                return { ...clip, ...filteredOldValues };
+              } else {
+                // Apply modify = use new values
+                const filteredNewValues = Object.fromEntries(
+                  Object.entries(operation.newValues).filter(([_, value]) => value !== undefined)
+                );
+                return { ...clip, ...filteredNewValues };
+              }
+            }
+            return clip;
+          });
+          break;
+          
+        default:
+          newClips = prev;
+      }
+      
+      // Update ref with new state
+      prevTimelineClipsRef.current = newClips;
+      return newClips;
+    });
+  }, []);
+
+  // Undo function - finds last enabled entry, disables it, and reverses the operation
   const handleUndo = React.useCallback(() => {
-    if (clipHistory.length === 0 || editHistory.length === 0) return;
+    if (operationHistory.length === 0 || editHistory.length === 0) return;
+    
+    // Find the last enabled entry (from the end)
+    let lastEnabledIndex = -1;
+    for (let i = editHistory.length - 1; i >= 0; i--) {
+      if (editHistory[i].enabled !== false) { // enabled is true or undefined (default true)
+        lastEnabledIndex = i;
+        break;
+      }
+    }
+    
+    // If no enabled entry found, can't undo
+    if (lastEnabledIndex < 0) return;
     
     // Set flag to prevent this undo from being tracked as a new change
     isUndoingRef.current = true;
     
-    // Get the last history entry
-    const lastClipState = clipHistory[clipHistory.length - 1];
+    // Get the operation at the same index
+    const operation = operationHistory[lastEnabledIndex];
     
-    // Restore the clip state
-    if (lastClipState) {
-      const previousClips = lastClipState.clips;
-      setTimelineClips(previousClips);
-      // Update the ref so the next change tracking works correctly
-      prevTimelineClipsRef.current = previousClips;
-    }
+    // Apply undo of the operation - this will update the clips
+    applyOperation(operation, true);
     
-    // Remove from history
-    setEditHistory(prev => prev.slice(0, -1));
-    setClipHistory(prev => prev.slice(0, -1));
+    // Disable the history entry (but don't mark as overwritten - that's only for new edits)
+    setEditHistory(prev => prev.map((entry, index) => 
+      index === lastEnabledIndex ? { ...entry, enabled: false } : entry
+    ));
     
     // Reset flag after a brief delay to allow state updates
     setTimeout(() => {
       isUndoingRef.current = false;
-    }, 0);
-  }, [editHistory, clipHistory]);
+    }, 50);
+  }, [operationHistory, editHistory, applyOperation]);
 
-  // Expose handleUndo and setTimelineClips on window object for menu access
+  // Redo function - finds last disabled entry (before first enabled from end), re-enables it
+  const handleRedo = React.useCallback(() => {
+    if (operationHistory.length === 0 || editHistory.length === 0) return;
+    
+    // Find the last disabled entry that is NOT overwritten (from the end, before any enabled entries)
+    // We can only redo entries that come after the current position (the last enabled entry)
+    let lastEnabledIndex = -1;
+    for (let i = editHistory.length - 1; i >= 0; i--) {
+      if (editHistory[i].enabled !== false) {
+        lastEnabledIndex = i;
+        break;
+      }
+    }
+    
+    // Find the first disabled entry after the last enabled one
+    let redoIndex = -1;
+    if (lastEnabledIndex === -1) {
+      // All entries are disabled, can redo the last one
+      for (let i = editHistory.length - 1; i >= 0; i--) {
+        if (editHistory[i].enabled === false && !editHistory[i].overwritten) {
+          redoIndex = i;
+          break;
+        }
+      }
+    } else {
+      // Find first disabled entry after last enabled entry
+      for (let i = lastEnabledIndex + 1; i < editHistory.length; i++) {
+        if (editHistory[i].enabled === false && !editHistory[i].overwritten) {
+          redoIndex = i;
+          break;
+        }
+      }
+    }
+    
+    // If no valid redo entry found, can't redo
+    if (redoIndex < 0) return;
+    
+    // Set flag to prevent this redo from being tracked as a new change
+    isUndoingRef.current = true;
+    
+    // Get the operation at the same index
+    const operation = operationHistory[redoIndex];
+    
+    // Apply the operation forward (not as undo)
+    applyOperation(operation, false);
+    
+    // Re-enable the history entry and clear overwritten flag
+    setEditHistory(prev => prev.map((entry, index) => 
+      index === redoIndex ? { ...entry, enabled: true, overwritten: false } : entry
+    ));
+    
+    // Reset flag after a brief delay to allow state updates
+    setTimeout(() => {
+      isUndoingRef.current = false;
+    }, 50);
+  }, [operationHistory, editHistory, applyOperation]);
+
+  // Expose handleUndo, handleRedo and setTimelineClips on window object for menu access
   React.useEffect(() => {
+    // Check if there's any enabled entry to undo
+    const hasEnabledEntry = editHistory.some(entry => entry.enabled !== false);
+    const canUndo = editHistory.length > 0 && hasEnabledEntry;
+    
+    // Check if there's any disabled entry that can be redone (not overwritten, after current position)
+    let lastEnabledIndex = -1;
+    for (let i = editHistory.length - 1; i >= 0; i--) {
+      if (editHistory[i].enabled !== false) {
+        lastEnabledIndex = i;
+        break;
+      }
+    }
+    
+    let canRedo = false;
+    if (lastEnabledIndex === -1) {
+      // All entries disabled, check if any non-overwritten disabled entry exists
+      canRedo = editHistory.some(entry => entry.enabled === false && !entry.overwritten);
+    } else {
+      // Check if there's a disabled entry after the last enabled one
+      canRedo = editHistory.slice(lastEnabledIndex + 1).some(entry => entry.enabled === false && !entry.overwritten);
+    }
+    
     window.handleUndo = handleUndo;
+    window.handleRedo = handleRedo;
     window.editHistoryLength = editHistory.length;
+    window.canUndo = canUndo;
+    window.canRedo = canRedo;
     window.setTimelineClipsUndo = setTimelineClips;
     return () => {
       window.handleUndo = undefined;
+      window.handleRedo = undefined;
       window.editHistoryLength = undefined;
+      window.canUndo = undefined;
+      window.canRedo = undefined;
       window.setTimelineClipsUndo = undefined;
     };
-  }, [handleUndo, editHistory.length, setTimelineClips]);
+  }, [handleUndo, handleRedo, editHistory, setTimelineClips]);
 
-  // Keyboard shortcut handler for Ctrl+Z
+  // Keyboard shortcut handler for Ctrl+Z (undo) and Ctrl+Shift+Z (redo)
   React.useEffect(() => {
     const handleKeyDown = (e) => {
-      if (e.ctrlKey && e.key === 'z') {
+      // Handle both lowercase 'z' and uppercase 'Z' (when Shift is pressed)
+      if (e.ctrlKey && (e.key === 'z' || e.key === 'Z')) {
         e.preventDefault();
-        handleUndo();
+        e.stopPropagation();
+        
+        // Check if Shift is pressed to determine redo vs undo
+        if (e.shiftKey) {
+          // Ctrl+Shift+Z = Redo
+          handleRedo();
+        } else {
+          // Ctrl+Z = Undo
+          handleUndo();
+        }
       }
     };
     
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleUndo]);
+    window.addEventListener('keydown', handleKeyDown, true); // Use capture phase
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
+  }, [handleUndo, handleRedo]);
 
   // Track timeline changes
   React.useEffect(() => {
@@ -395,46 +614,63 @@ function EditorLayout() {
 
     // Skip if we're in the middle of an undo operation
     if (isUndoingRef.current) {
-      prevTimelineClipsRef.current = currentClips;
+      // Store filtered clips to avoid undefined entries
+      const filteredClips = currentClips.filter(clip => clip != null);
+      prevTimelineClipsRef.current = filteredClips;
       return;
     }
 
     // Skip tracking if no changes in clip count and clips are identical
-    if (prevClips.length === currentClips.length && 
-        prevClips.every((prevClip, idx) => 
-          prevClip.id === currentClips[idx].id &&
-          prevClip.startFrames === currentClips[idx].startFrames &&
-          prevClip.endFrames === currentClips[idx].endFrames &&
-          prevClip.track === currentClips[idx].track
-        )) {
+    // Filter out any null/undefined entries first
+    const validPrevClips = prevClips.filter(clip => clip != null);
+    const validCurrentClips = currentClips.filter(clip => clip != null);
+    
+    if (validPrevClips.length === validCurrentClips.length && 
+        validPrevClips.every((prevClip, idx) => {
+          const currentClip = validCurrentClips[idx];
+          return prevClip && currentClip &&
+                 prevClip.id === currentClip.id &&
+                 prevClip.startFrames === currentClip.startFrames &&
+                 prevClip.endFrames === currentClip.endFrames &&
+                 prevClip.track === currentClip.track;
+        })) {
       return;
     }
 
-    // Detect changes
-    if (currentClips.length > prevClips.length) {
+    // Detect changes and create operations
+    // Use filtered arrays to avoid undefined entries
+    if (validCurrentClips.length > validPrevClips.length) {
       // Clip added
-      const newClip = currentClips.find(clip => !prevClips.some(p => p.id === clip.id));
+      const newClip = validCurrentClips.find(clip => clip && !validPrevClips.some(p => p && p.id === clip.id));
       if (newClip) {
+        const operation = {
+          type: '+clip',
+          clip: JSON.parse(JSON.stringify(newClip)) // Deep copy
+        };
         addHistoryEntry('add', {
           clipId: newClip.id,
           clipName: newClip.filename || newClip.character || 'Clip',
           position: newClip.startFrames || 0
-        }, prevClips);
+        }, operation);
       }
-    } else if (currentClips.length < prevClips.length) {
+    } else if (validCurrentClips.length < validPrevClips.length) {
       // Clip deleted
-      const deletedClip = prevClips.find(clip => !currentClips.some(c => c.id === clip.id));
+      const deletedClip = validPrevClips.find(clip => clip && !validCurrentClips.some(c => c && c.id === clip.id));
       if (deletedClip) {
+        const operation = {
+          type: '-clip',
+          clip: JSON.parse(JSON.stringify(deletedClip)) // Deep copy
+        };
         addHistoryEntry('delete', {
           clipId: deletedClip.id,
           clipName: deletedClip.filename || deletedClip.character || 'Clip'
-        }, prevClips);
+        }, operation);
       }
     } else {
       // Check for moved or cropped clips
-      let hasChanges = false;
-      currentClips.forEach(currentClip => {
-        const prevClip = prevClips.find(p => p.id === currentClip.id);
+      validCurrentClips.forEach(currentClip => {
+        if (!currentClip) return;
+        const prevClip = validPrevClips.find(p => p && p.id === currentClip.id);
         if (!prevClip) return;
 
         const prevStart = prevClip.startFrames;
@@ -449,43 +685,91 @@ function EditorLayout() {
         const trackChanged = prevTrack !== currTrack;
         
         if (durationChanged || positionChanged || trackChanged) {
-          hasChanges = true;
-          if (durationChanged && positionChanged) {
-            // Both moved and cropped
-            addHistoryEntry('crop', {
+          if (positionChanged || trackChanged) {
+            // MOVE OPERATION - store full old and new clip states
+            // Store complete clip state for proper undo restoration
+            const oldClipState = JSON.parse(JSON.stringify(prevClip));
+            const newClipState = JSON.parse(JSON.stringify(currentClip));
+            
+            const moveOperation = {
+              type: 'move',
               clipId: currentClip.id,
-              clipName: currentClip.filename || currentClip.character || 'Clip',
-              oldDuration: prevEnd - prevStart,
-              newDuration: currEnd - currStart,
-              oldStart: prevStart,
-              newStart: currStart
-            }, prevClips);
+              oldClip: oldClipState,  // Full old clip state
+              newClip: newClipState   // Full new clip state (for redo, if needed)
+            };
+            
+            if (durationChanged) {
+              // Both moved and cropped - track as crop with move info
+              const cropOperation = {
+                type: '~clip',
+                clipId: currentClip.id,
+                oldValues: {
+                  startFrames: prevStart,
+                  endFrames: prevEnd,
+                  track: prevTrack,
+                  leftCropFrames: prevClip.leftCropFrames ?? 0,
+                  rightCropFrames: prevClip.rightCropFrames ?? 0
+                },
+                newValues: {
+                  startFrames: currStart,
+                  endFrames: currEnd,
+                  track: currTrack,
+                  leftCropFrames: currentClip.leftCropFrames ?? 0,
+                  rightCropFrames: currentClip.rightCropFrames ?? 0
+                }
+              };
+              addHistoryEntry('crop', {
+                clipId: currentClip.id,
+                clipName: currentClip.filename || currentClip.character || 'Clip',
+                oldDuration: prevEnd - prevStart,
+                newDuration: currEnd - currStart,
+                oldStart: prevStart,
+                newStart: currStart
+              }, cropOperation);
+            } else {
+              // Just moved (horizontal or vertical)
+              addHistoryEntry('move', {
+                clipId: currentClip.id,
+                clipName: currentClip.filename || currentClip.character || 'Clip',
+                from: prevStart,
+                to: currStart,
+                fromTrack: prevTrack,
+                toTrack: currTrack,
+                movedHorizontally: positionChanged,
+                movedVertically: trackChanged
+              }, moveOperation);
+            }
           } else if (durationChanged) {
-            // Just cropped
+            // CROP OPERATION - no move, just crop
+            const cropOperation = {
+              type: '~clip',
+              clipId: currentClip.id,
+              oldValues: {
+                startFrames: prevStart,
+                endFrames: prevEnd,
+                leftCropFrames: prevClip.leftCropFrames ?? 0,
+                rightCropFrames: prevClip.rightCropFrames ?? 0
+              },
+              newValues: {
+                startFrames: currStart,
+                endFrames: currEnd,
+                leftCropFrames: currentClip.leftCropFrames ?? 0,
+                rightCropFrames: currentClip.rightCropFrames ?? 0
+              }
+            };
             addHistoryEntry('crop', {
               clipId: currentClip.id,
               clipName: currentClip.filename || currentClip.character || 'Clip',
               oldDuration: prevEnd - prevStart,
               newDuration: currEnd - currStart
-            }, prevClips);
-          } else if (positionChanged || trackChanged) {
-            // Just moved (horizontal or vertical)
-            addHistoryEntry('move', {
-              clipId: currentClip.id,
-              clipName: currentClip.filename || currentClip.character || 'Clip',
-              from: prevStart,
-              to: currStart,
-              fromTrack: prevTrack,
-              toTrack: currTrack,
-              movedHorizontally: positionChanged,
-              movedVertically: trackChanged
-            }, prevClips);
+            }, cropOperation);
           }
         }
       });
     }
 
-    prevTimelineClipsRef.current = currentClips;
+    // Store filtered clips to avoid undefined entries
+    prevTimelineClipsRef.current = validCurrentClips;
   }, [timelineClips]);
 
   // Test backend connection on mount
@@ -741,43 +1025,91 @@ function EditorLayout() {
             flexDirection: 'column'
           }}>
             {clipPreviewTab === 'preview' ? (
-              <div style={{ flex: 1, overflow: 'hidden' }}>
-                <ClipPreview clip={selectedClip} />
-              </div>
+                   <div style={{ flex: 1, overflow: 'hidden' }}>
+                     <ClipPreview clip={selectedClip} />
+                   </div>
             ) : (
-              <div style={{ 
-                flex: 1, 
-                overflow: 'auto', 
-                background: '#1e1e1e',
-                fontFamily: 'monospace',
-                fontSize: '12px',
-                padding: '8px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '2px'
-              }}>
+              <div 
+                ref={historyContainerRef}
+                style={{ 
+                  flex: 1, 
+                  overflow: 'auto', 
+                  background: '#1e1e1e',
+                  fontFamily: 'monospace',
+                  fontSize: '12px',
+                  padding: '8px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '2px'
+                }}
+              >
                 {editHistory.length === 0 ? (
                   <div style={{ color: '#666', padding: '8px' }}>
                     No edit history yet
                   </div>
                 ) : (
-                  editHistory.slice().reverse().map((entry, index) => (
-                    <div 
-                      key={index}
-                      style={{
-                        color: getActionColor(entry.action),
-                        padding: '4px 8px',
-                        borderRadius: '2px',
-                        display: 'flex',
-                        gap: '8px',
-                        alignItems: 'baseline'
-                      }}
-                    >
-                      <span style={{ color: '#888', fontSize: '10px' }}>{entry.timestamp}</span>
-                      <span style={{ fontWeight: 'bold' }}>[{entry.action.toUpperCase()}]</span>
-                      <span style={{ color: '#fff' }}>{formatHistoryEntry(entry)}</span>
-                    </div>
-                  ))
+                  (() => {
+                    // Find the current position (last enabled entry)
+                    let currentPositionIndex = -1;
+                    for (let i = editHistory.length - 1; i >= 0; i--) {
+                      if (editHistory[i].enabled !== false) {
+                        currentPositionIndex = i;
+                        break;
+                      }
+                    }
+                    
+                    return editHistory.map((entry, index) => {
+                      // Entry states
+                      const isDisabled = entry.enabled === false;
+                      const isOverwritten = entry.overwritten === true;
+                      const isCurrent = index === currentPositionIndex;
+                      
+                      // Color logic: overwritten = greyish-red, disabled = grey, enabled = normal color
+                      let entryColor;
+                      let opacity;
+                      if (isOverwritten) {
+                        entryColor = '#cc6666'; // Greyish-red
+                        opacity = 0.5;
+                      } else if (isDisabled) {
+                        entryColor = '#999'; // Grey
+                        opacity = 0.4;
+                      } else {
+                        entryColor = getActionColor(entry.action);
+                        opacity = 1;
+                      }
+                      
+                      return (
+                        <div 
+                          key={index}
+                          style={{
+                            color: entryColor,
+                            padding: '4px 8px',
+                            borderRadius: '2px',
+                            display: 'flex',
+                            gap: '8px',
+                            alignItems: 'baseline',
+                            opacity: opacity,
+                            border: isCurrent ? '2px solid #007bff' : '1px solid transparent',
+                            background: isCurrent ? 'rgba(0, 123, 255, 0.15)' : 'transparent',
+                            boxShadow: isCurrent ? '0 0 4px rgba(0, 123, 255, 0.3)' : 'none'
+                          }}
+                        >
+                          <span style={{ 
+                            color: isOverwritten ? '#aa5555' : (isDisabled ? '#555' : '#888'), 
+                            fontSize: '10px' 
+                          }}>
+                            {entry.timestamp}
+                          </span>
+                          <span style={{ fontWeight: 'bold' }}>[{entry.action.toUpperCase()}]</span>
+                          <span style={{ 
+                            color: isOverwritten ? '#cc8888' : (isDisabled ? '#666' : '#fff') 
+                          }}>
+                            {formatHistoryEntry(entry)}
+                          </span>
+                        </div>
+                      );
+                    });
+                  })()
                 )}
               </div>
             )}
@@ -830,6 +1162,7 @@ function EditorLayout() {
                 setPlayheadPosition(position);
               }}
               zoomLevel={timelineZoom}
+              externalTimelineClips={timelineClips}
             />
           </div>
         </div>

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { logOnce } from '../utils/consoleDeduplication';
 
-export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTimelineClick, onTimelineClipsChange, onPlayheadChange }) {
+export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTimelineClick, onTimelineClipsChange, onPlayheadChange, externalTimelineClips }) {
   const [activeTool, setActiveTool] = useState('cursor');
   const [videoTracks, setVideoTracks] = useState([1, 2, 3]);
   const [audioTracks, setAudioTracks] = useState([1]);
@@ -11,6 +11,35 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
   const [isManualPlayheadChange, setIsManualPlayheadChange] = useState(false);
   const [dragStartPlayheadPosition, setDragStartPlayheadPosition] = useState(null); // Playhead position when drag starts
   const [timelineClips, setTimelineClips] = useState([]); // Clips placed on timeline
+  
+  // Sync local state with external prop (for undo/redo operations from App.js)
+  // Only sync if external clips are different from current local state
+  useEffect(() => {
+    if (externalTimelineClips !== undefined) {
+      // Check if clips are actually different by comparing all clips by ID
+      // This handles cases where clips are reordered or properties change
+      const clipsDifferent = externalTimelineClips.length !== timelineClips.length ||
+        externalTimelineClips.some(clip => {
+          const localClip = timelineClips.find(lc => lc && lc.id === clip.id);
+          // If clip doesn't exist locally, or properties are different
+          return !localClip ||
+                 clip.track !== localClip.track ||
+                 clip.startFrames !== localClip.startFrames ||
+                 clip.endFrames !== localClip.endFrames;
+        }) ||
+        timelineClips.some(clip => {
+          const externalClip = externalTimelineClips.find(ec => ec && ec.id === clip.id);
+          // If clip doesn't exist externally, or properties are different
+          return !externalClip ||
+                 clip.track !== externalClip.track ||
+                 clip.startFrames !== externalClip.startFrames ||
+                 clip.endFrames !== externalClip.endFrames;
+        });
+      if (clipsDifferent) {
+        setTimelineClips(externalTimelineClips);
+      }
+    }
+  }, [externalTimelineClips]); // eslint-disable-line react-hooks/exhaustive-deps
   const [staticClipData, setStaticClipData] = useState(new Map()); // Static clip data store: key = "character/filename", value = original clip data
   const [dragPreview, setDragPreview] = useState(null); // Preview clip during drag
   const [magneticPoints, setMagneticPoints] = useState(new Map()); // Universal magnetic points storage
