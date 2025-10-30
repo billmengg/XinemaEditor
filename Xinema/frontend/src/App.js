@@ -134,9 +134,9 @@ function App() {
             zIndex: 1000
           }}>
             <div style={{ padding: '6px 20px', cursor: 'pointer', ':hover': { background: '#f0f0f0' } }} onMouseEnter={(e) => e.target.style.background = '#f0f0f0'} onMouseLeave={(e) => e.target.style.background = 'white'} onClick={() => { console.log('New Project'); setOpenMenu(null); }}>New Project...</div>
-            <div style={{ padding: '6px 20px', cursor: 'pointer' }} onMouseEnter={(e) => e.target.style.background = '#f0f0f0'} onMouseLeave={(e) => e.target.style.background = 'white'} onClick={() => { console.log('Open Project'); setOpenMenu(null); }}>Open Project...</div>
-            <div style={{ padding: '6px 20px', cursor: 'pointer' }} onMouseEnter={(e) => e.target.style.background = '#f0f0f0'} onMouseLeave={(e) => e.target.style.background = 'white'} onClick={() => { console.log('Save Project'); setOpenMenu(null); }}>Save Project</div>
-            <div style={{ padding: '6px 20px', cursor: 'pointer' }} onMouseEnter={(e) => e.target.style.background = '#f0f0f0'} onMouseLeave={(e) => e.target.style.background = 'white'} onClick={() => { console.log('Save Project As'); setOpenMenu(null); }}>Save Project As...</div>
+            <div style={{ padding: '6px 20px', cursor: 'pointer' }} onMouseEnter={(e) => e.target.style.background = '#f0f0f0'} onMouseLeave={(e) => e.target.style.background = 'white'} onClick={() => { if (window.openProject) { window.openProject(); } else { console.warn('Open Project unavailable'); } setOpenMenu(null); }}>Open Project...</div>
+            <div style={{ padding: '6px 20px', cursor: 'pointer' }} onMouseEnter={(e) => e.target.style.background = '#f0f0f0'} onMouseLeave={(e) => e.target.style.background = 'white'} onClick={() => { if (window.saveProject) { window.saveProject(); } else { console.warn('Save Project unavailable'); } setOpenMenu(null); }}>Save Project</div>
+            <div style={{ padding: '6px 20px', cursor: 'pointer' }} onMouseEnter={(e) => e.target.style.background = '#f0f0f0'} onMouseLeave={(e) => e.target.style.background = 'white'} onClick={() => { if (window.downloadProjectAs) { window.downloadProjectAs(); } else { console.warn('Save As unavailable'); } setOpenMenu(null); }}>Save Project As...</div>
             <div style={{ borderTop: '1px solid #e0e0e0', margin: '4px 0' }}></div>
             <div style={{ padding: '6px 20px', cursor: 'pointer' }} onMouseEnter={(e) => e.target.style.background = '#f0f0f0'} onMouseLeave={(e) => e.target.style.background = 'white'} onClick={() => { console.log('Import Media'); setOpenMenu(null); }}>Import Media...</div>
             <div style={{ padding: '6px 20px', cursor: 'pointer' }} onMouseEnter={(e) => e.target.style.background = '#f0f0f0'} onMouseLeave={(e) => e.target.style.background = 'white'} onClick={() => { console.log('Export Timeline'); setOpenMenu(null); }}>Export Timeline...</div>
@@ -340,6 +340,211 @@ function EditorLayout() {
          const isUndoingRef = React.useRef(false); // Flag to prevent tracking undo operations
          const prevTimelineClipsRef = React.useRef(timelineClips);
          const historyContainerRef = React.useRef(null); // Ref for history scroll container
+  // Expose project export functions for Save As
+  React.useEffect(() => {
+    const buildProjectJson = () => {
+      const project = {
+        schemaVersion: 1,
+        projectId: window.currentProjectId || (window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : String(Date.now())),
+        name: window.currentProjectName || 'Xinema Project',
+        createdAt: window.currentProjectCreatedAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        frameRate: 60,
+        timeline: {
+          tracks: [
+            { id: 'v1', type: 'video', index: 1 },
+            { id: 'v2', type: 'video', index: 2 },
+            { id: 'v3', type: 'video', index: 3 }
+          ],
+          clips: (timelineClips || []).filter(Boolean).map(c => ({
+            id: c.id,
+            track: c.track,
+            startFrames: c.startFrames,
+            endFrames: c.endFrames,
+            leftCropFrames: c.leftCropFrames ?? 0,
+            rightCropFrames: c.rightCropFrames ?? 0,
+            originalStart: c.originalStart ?? c.startFrames,
+            originalEnd: c.originalEnd ?? c.endFrames,
+            speed: c.speed ?? 1.0,
+            character: c.character,
+            filename: c.filename,
+            source: {
+              relativeRef: c.character && c.filename ? `${c.character}/${c.filename}` : undefined,
+              backendPath: c.character && c.filename ? `/api/video/${c.character}/${c.filename}` : undefined,
+              durationSeconds: typeof c.duration === 'number' ? c.duration : undefined
+            },
+            metadata: c.metadata || {}
+          }))
+        },
+        uiState: {
+          zoom: timelineZoom,
+          playheadPosition: playheadPosition,
+          selectedClipIds: selectedClip ? [selectedClip.id] : []
+        }
+      };
+      return project;
+    };
+
+    const downloadProjectAs = (filename) => {
+      try {
+        const project = buildProjectJson();
+        const json = JSON.stringify(project, null, 2);
+        const blob = new Blob([json], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        const ts = new Date();
+        const pad = (n) => String(n).padStart(2, '0');
+        const defaultName = filename || `Xinema_Project_${ts.getFullYear()}${pad(ts.getMonth()+1)}${pad(ts.getDate())}_${pad(ts.getHours())}${pad(ts.getMinutes())}${pad(ts.getSeconds())}.xinema.json`;
+        a.href = url;
+        a.download = defaultName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      } catch (e) {
+        console.error('Failed to export project:', e);
+      }
+    };
+
+    const applyProjectJson = (project) => {
+      try {
+        // Prevent history tracking during load
+        isUndoingRef.current = true;
+        // Basic validation
+        const clips = (project?.timeline?.clips || []).filter(Boolean).map(c => {
+          const leftCrop = Number.isFinite(c.leftCropFrames) ? c.leftCropFrames : 0;
+          const rightCrop = Number.isFinite(c.rightCropFrames) ? c.rightCropFrames : 0;
+          const origStart = Number.isFinite(c.originalStart) ? c.originalStart : (Number.isFinite(c.startFrames) ? c.startFrames : 0);
+          const origEnd = Number.isFinite(c.originalEnd) ? c.originalEnd : (Number.isFinite(c.endFrames) ? c.endFrames : (origStart + 60));
+          // Derive visual positions from original + crops for consistency
+          const visualStart = origStart + leftCrop;
+          const visualEnd = origEnd - rightCrop;
+          // Fallback to provided visual if derivation is invalid
+          const startFrames = Number.isFinite(visualStart) && Number.isFinite(visualEnd) && visualEnd >= visualStart
+            ? visualStart
+            : (Number.isFinite(c.startFrames) ? c.startFrames : origStart);
+          const endFrames = Number.isFinite(visualStart) && Number.isFinite(visualEnd) && visualEnd >= visualStart
+            ? visualEnd
+            : (Number.isFinite(c.endFrames) ? c.endFrames : origEnd);
+
+          return {
+            id: c.id,
+            track: typeof c.track === 'number' ? c.track : 1,
+            // Visual (what user sees)
+            startFrames,
+            endFrames,
+            leftCropFrames: leftCrop,
+            rightCropFrames: rightCrop,
+            // Original instance bounds for crop math
+            originalStart: origStart,
+            originalEnd: origEnd,
+            // Instance fields used by timeline math
+            instanceStartFrames: origStart,
+            instanceEndFrames: origEnd,
+            speed: Number.isFinite(c.speed) ? c.speed : 1.0,
+            character: c.character,
+            filename: c.filename,
+            duration: Number.isFinite(c.source?.durationSeconds) ? c.source.durationSeconds : c.duration,
+            metadata: c.metadata || {}
+          };
+        });
+        setTimelineClips(clips);
+        if (Array.isArray(project?.uiState?.selectedClipIds) && project.uiState.selectedClipIds.length > 0) {
+          const cid = project.uiState.selectedClipIds[0];
+          const found = clips.find(c => c.id === cid);
+          if (found) setSelectedClip(found);
+          else setSelectedClip(null);
+        } else {
+          setSelectedClip(null);
+        }
+        if (typeof project?.uiState?.zoom === 'number') setTimelineZoom(project.uiState.zoom);
+        if (typeof project?.uiState?.playheadPosition === 'number') setPlayheadPosition(project.uiState.playheadPosition);
+        // Reset histories
+        setEditHistory([]);
+        setOperationHistory([]);
+      } finally {
+        setTimeout(() => { isUndoingRef.current = false; }, 50);
+      }
+    };
+
+    const openProject = async () => {
+      try {
+        if (window.showOpenFilePicker) {
+          const [handle] = await window.showOpenFilePicker({
+            types: [{ description: 'Xinema Project', accept: { 'application/json': ['.xinema.json', '.json'] } }],
+            excludeAcceptAllOption: false,
+            multiple: false
+          });
+          const file = await handle.getFile();
+          const text = await file.text();
+          const project = JSON.parse(text);
+          // Persist handle & identity
+          window.currentProjectHandle = handle;
+          window.currentProjectName = file.name.replace(/\.xinema\.json$/i, '').replace(/\.json$/i, '') || 'Xinema Project';
+          window.currentProjectId = project.projectId || window.currentProjectId || (window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : String(Date.now()));
+          window.currentProjectCreatedAt = project.createdAt || new Date().toISOString();
+          applyProjectJson(project);
+        } else {
+          // Fallback input element
+          const input = document.createElement('input');
+          input.type = 'file';
+          input.accept = '.xinema.json,.json,application/json';
+          input.onchange = async (e) => {
+            const file = e.target.files && e.target.files[0];
+            if (!file) return;
+            const text = await file.text();
+            const project = JSON.parse(text);
+            window.currentProjectHandle = undefined; // cannot persist without FS API
+            window.currentProjectName = file.name.replace(/\.xinema\.json$/i, '').replace(/\.json$/i, '') || 'Xinema Project';
+            window.currentProjectId = project.projectId || window.currentProjectId || (window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : String(Date.now()));
+            window.currentProjectCreatedAt = project.createdAt || new Date().toISOString();
+            applyProjectJson(project);
+          };
+          input.click();
+        }
+      } catch (e) {
+        console.error('Failed to open project:', e);
+      }
+    };
+
+    const saveProject = async () => {
+      try {
+        const project = buildProjectJson();
+        const json = JSON.stringify(project, null, 2);
+        if (window.currentProjectHandle && window.currentProjectHandle.createWritable) {
+          const writable = await window.currentProjectHandle.createWritable();
+          await writable.write(json);
+          await writable.close();
+        } else if (window.showSaveFilePicker) {
+          const handle = await window.showSaveFilePicker({
+            suggestedName: (window.currentProjectName || 'Xinema_Project') + '.xinema.json',
+            types: [{ description: 'Xinema Project', accept: { 'application/json': ['.xinema.json'] } }]
+          });
+          const writable = await handle.createWritable();
+          await writable.write(json);
+          await writable.close();
+          window.currentProjectHandle = handle;
+        } else {
+          // Fallback: download
+          downloadProjectAs((window.currentProjectName || 'Xinema_Project') + '.xinema.json');
+        }
+      } catch (e) {
+        console.error('Failed to save project:', e);
+      }
+    };
+
+    window.getProjectJson = buildProjectJson;
+    window.downloadProjectAs = downloadProjectAs;
+    window.openProject = openProject;
+    window.saveProject = saveProject;
+    return () => {
+      window.getProjectJson = undefined;
+      window.downloadProjectAs = undefined;
+      window.openProject = undefined;
+      window.saveProject = undefined;
+    };
+  }, [timelineClips, timelineZoom, playheadPosition, selectedClip]);
+
 
   // Auto-scroll history to bottom when new entries are added
   React.useEffect(() => {

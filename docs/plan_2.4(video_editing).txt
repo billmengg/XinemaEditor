@@ -44,69 +44,77 @@ The Video Editing Features provide professional-grade editing tools for clip man
 
 ### **2. Timeline Enhancements**
 - [ ] **Visual Editing Tools**
-  - [ ] Resizable clip edges with hover effects
-  - [ ] Snap to frame boundaries
-  - [ ] Visual feedback during trimming
-  - [ ] Split tool cursor when active
-  - [ ] Click to split at position
-  - [ ] Visual split line indicator
+  - [x] Resizable clip edges
+  - [x] Visual feedback during trimming
+  
 
-- [ ] **Edit History Management**
-  - [ ] Undo last edit operation (Ctrl+Z)
-  - [ ] Redo undone operation (Ctrl+Y)
-  - [ ] Edit history stack (50 operations)
-  - [ ] Clear history on project save
-  - [ ] Track all edit types
-  - [ ] Visual undo/redo indicators
+- [x] **Edit History Management**
+  - [x] Undo last edit operation (Ctrl+Z)
+  - [x] Redo undone operation (Ctrl+Y)
+  - [x] Edit history stack
+  - [x] Track all edit types
+  
 
-- [ ] **Clip Properties Panel**
-  - [ ] Start time (frames/seconds)
-  - [ ] End time (frames/seconds)
-  - [ ] Duration display
-  - [ ] Speed multiplier
-  - [ ] Track assignment
-  - [ ] Source file path
-  - [ ] Character assignment
-  - [ ] Custom metadata
-
-- [ ] **Timeline Zoom & Navigation**
-  - [ ] 0.5x to 4x zoom levels
-  - [ ] Mouse wheel zoom
-  - [ ] Zoom to fit selection
-  - [ ] Zoom slider in timeline
-  - [ ] Pan timeline (middle mouse drag)
-  - [ ] Zoom to playhead
+- [x] **Clip Properties Panel**
+  - [x] Start time (frames/seconds)
+  - [x] End time (frames/seconds)
+  - [x] Duration display
+  - [x] Speed multiplier
+  - [x] Track assignment
+  - [x] Source file path
+  - [x] Character assignment
+  - [x] Custom metadata
 
 ### **3. User Interface & Controls**
-- [ ] **Editing Toolbar**
-  - [ ] Select tool (default)
-  - [ ] Split tool
-  - [ ] Trim tool
-  - [ ] Tool icons and labels
-  - [ ] Keyboard shortcuts for tools
-  - [ ] Cut, copy, paste, delete actions
+  
 
-- [ ] **Context Menus**
-  - [ ] Clip right-click menu
-  - [ ] Split at playhead
-  - [ ] Trim to playhead
-  - [ ] Delete clip
-  - [ ] Copy clip
-  - [ ] Clip properties
-  - [ ] Speed adjustment
+---
 
-- [ ] **Keyboard Shortcuts**
-  - [ ] Space: Play/Pause
-  - [ ] I: Set in point
-  - [ ] O: Set out point
-  - [ ] S: Split tool
-  - [ ] V: Select tool
-  - [ ] Ctrl+Z: Undo
-  - [ ] Ctrl+Y: Redo
-  - [ ] Home/End: Go to start/end
-  - [ ] Arrow keys: Frame step
+## ⚡ **V0.5 FEATURES**
 
-  edit history and undo
+### **Timeline Zoom & Navigation**
+- 0.5x to 4x zoom levels
+- Mouse wheel zoom
+- Zoom to fit selection
+- Zoom slider in timeline
+- Pan timeline (middle mouse drag)
+- Zoom to playhead
+
+### **Editing Toolbar**
+- Select tool (default)
+- Split tool
+- Trim tool
+- Tool icons and labels
+- Keyboard shortcuts for tools
+- Cut, copy, paste, delete actions
+
+### **Context Menus**
+- Clip right-click menu
+- Split at playhead
+- Trim to playhead
+- Delete clip
+- Copy clip
+- Clip properties
+- Speed adjustment
+
+### **Keyboard Shortcuts**
+- Space: Play/Pause
+- I: Set in point
+- O: Set out point
+- S: Split tool
+- V: Select tool
+- Home/End: Go to start/end
+- Arrow keys: Frame step
+
+### **Visual Editing Tools (remaining)**
+- Snap to frame boundaries
+- Split tool cursor when active
+- Click to split at position
+- Visual split line indicator
+
+### **Edit History polish**
+- Clear history on project save
+- Visual undo/redo indicators
 
 ---
 
@@ -326,9 +334,9 @@ const editingData = {
 - [x] Users can trim clips with frame accuracy
 - [x] Users can drag and duplicate clips
 - [x] Users can position clips with magnetic snapping
-- [ ] All operations are undoable
-- [ ] Timeline zoom works smoothly
-- [ ] Keyboard shortcuts are intuitive
+- [x] All operations are undoable
+- [ ] Timeline zoom works smoothly (Moved to V0.5)
+- [ ] Keyboard shortcuts are intuitive (Moved to V0.5)
 
 ### **Performance Requirements**
 - [ ] Handle 1000+ clips smoothly
@@ -412,10 +420,7 @@ const editingData = {
 ## 🔮 **FUTURE ENHANCEMENTS**
 
 ### **Short-term (V0.5)**
-- Advanced trimming tools
-- Multi-clip operations
-- Enhanced keyboard shortcuts
-- Performance optimizations
+Refer to the dedicated V0.5 section above.
 
 ### **Long-term (V1+)**
 - Professional effects system
