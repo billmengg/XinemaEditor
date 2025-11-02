@@ -136,7 +136,7 @@ function App() {
             <div style={{ padding: '6px 20px', cursor: 'pointer', ':hover': { background: '#f0f0f0' } }} onMouseEnter={(e) => e.target.style.background = '#f0f0f0'} onMouseLeave={(e) => e.target.style.background = 'white'} onClick={() => { console.log('New Project'); setOpenMenu(null); }}>New Project...</div>
             <div style={{ padding: '6px 20px', cursor: 'pointer' }} onMouseEnter={(e) => e.target.style.background = '#f0f0f0'} onMouseLeave={(e) => e.target.style.background = 'white'} onClick={() => { if (window.openProject) { window.openProject(); } else { console.warn('Open Project unavailable'); } setOpenMenu(null); }}>Open Project...</div>
             <div style={{ padding: '6px 20px', cursor: 'pointer' }} onMouseEnter={(e) => e.target.style.background = '#f0f0f0'} onMouseLeave={(e) => e.target.style.background = 'white'} onClick={() => { if (window.saveProject) { window.saveProject(); } else { console.warn('Save Project unavailable'); } setOpenMenu(null); }}>Save Project</div>
-            <div style={{ padding: '6px 20px', cursor: 'pointer' }} onMouseEnter={(e) => e.target.style.background = '#f0f0f0'} onMouseLeave={(e) => e.target.style.background = 'white'} onClick={() => { if (window.downloadProjectAs) { window.downloadProjectAs(); } else { console.warn('Save As unavailable'); } setOpenMenu(null); }}>Save Project As...</div>
+            <div style={{ padding: '6px 20px', cursor: 'pointer' }} onMouseEnter={(e) => e.target.style.background = '#f0f0f0'} onMouseLeave={(e) => e.target.style.background = 'white'} onClick={() => { if (window.saveProjectAs) { window.saveProjectAs(); } else { console.warn('Save As unavailable'); } setOpenMenu(null); }}>Save Project As...</div>
             <div style={{ borderTop: '1px solid #e0e0e0', margin: '4px 0' }}></div>
             <div style={{ padding: '6px 20px', cursor: 'pointer' }} onMouseEnter={(e) => e.target.style.background = '#f0f0f0'} onMouseLeave={(e) => e.target.style.background = 'white'} onClick={() => { console.log('Import Media'); setOpenMenu(null); }}>Import Media...</div>
             <div style={{ padding: '6px 20px', cursor: 'pointer' }} onMouseEnter={(e) => e.target.style.background = '#f0f0f0'} onMouseLeave={(e) => e.target.style.background = 'white'} onClick={() => { console.log('Export Timeline'); setOpenMenu(null); }}>Export Timeline...</div>
@@ -356,25 +356,77 @@ function EditorLayout() {
             { id: 'v2', type: 'video', index: 2 },
             { id: 'v3', type: 'video', index: 3 }
           ],
-          clips: (timelineClips || []).filter(Boolean).map(c => ({
-            id: c.id,
-            track: c.track,
-            startFrames: c.startFrames,
-            endFrames: c.endFrames,
-            leftCropFrames: c.leftCropFrames ?? 0,
-            rightCropFrames: c.rightCropFrames ?? 0,
-            originalStart: c.originalStart ?? c.startFrames,
-            originalEnd: c.originalEnd ?? c.endFrames,
-            speed: c.speed ?? 1.0,
-            character: c.character,
-            filename: c.filename,
-            source: {
-              relativeRef: c.character && c.filename ? `${c.character}/${c.filename}` : undefined,
-              backendPath: c.character && c.filename ? `/api/video/${c.character}/${c.filename}` : undefined,
-              durationSeconds: typeof c.duration === 'number' ? c.duration : undefined
-            },
-            metadata: c.metadata || {}
-          }))
+          staticClipData: (() => {
+            // Collect unique clips and their static data
+            const staticMap = new Map();
+            (timelineClips || []).filter(Boolean).forEach(c => {
+              if (c.character && c.filename) {
+                const key = `${c.character}/${c.filename}`;
+                if (!staticMap.has(key)) {
+                  // Save static data for this clip
+                  const duration = Number.isFinite(c.duration) ? c.duration : 
+                                 (Number.isFinite(c.originalDurationFrames) ? c.originalDurationFrames / 60 : 60);
+                  staticMap.set(key, {
+                    character: c.character,
+                    filename: c.filename,
+                    duration: duration,
+                    originalStartFrames: c.originalStartFrames ?? 0,
+                    originalEndFrames: c.originalEndFrames ?? Math.floor(duration * 60),
+                    originalDurationFrames: c.originalDurationFrames ?? Math.floor(duration * 60)
+                  });
+                }
+              }
+            });
+            // Convert Map to array for JSON serialization
+            return Array.from(staticMap.entries()).map(([key, value]) => ({ key, value }));
+          })(),
+          clips: (timelineClips || []).filter(Boolean).map(c => {
+            // Save ALL fields from the clip object - don't cherry-pick
+            const saved = {
+              id: c.id,
+              track: c.track,
+              // Visual positions
+              startFrames: c.startFrames,
+              endFrames: c.endFrames,
+              // Crop amounts
+              leftCropFrames: c.leftCropFrames ?? 0,
+              rightCropFrames: c.rightCropFrames ?? 0,
+              // Instance-level original positions (what the clip was before crops)
+              originalStart: c.originalStart,
+              originalEnd: c.originalEnd,
+              // Instance positions (used by timeline math)
+              instanceStartFrames: c.instanceStartFrames,
+              instanceEndFrames: c.instanceEndFrames,
+              // Static data (if present)
+              originalStartFrames: c.originalStartFrames,
+              originalEndFrames: c.originalEndFrames,
+              originalDurationFrames: c.originalDurationFrames,
+              durationFrames: c.durationFrames,
+              // Pixel positions (for display)
+              startPixel: c.startPixel,
+              endPixel: c.endPixel,
+              widthPixel: c.widthPixel,
+              instanceStartPixel: c.instanceStartPixel,
+              instanceEndPixel: c.instanceEndPixel,
+              instanceWidthPixel: c.instanceWidthPixel,
+              // Other properties
+              speed: c.speed ?? 1.0,
+              character: c.character,
+              filename: c.filename,
+              duration: c.duration,
+              source: {
+                relativeRef: c.character && c.filename ? `${c.character}/${c.filename}` : undefined,
+                backendPath: c.character && c.filename ? `/api/video/${c.character}/${c.filename}` : undefined,
+                durationSeconds: typeof c.duration === 'number' ? c.duration : undefined
+              },
+              metadata: c.metadata || {}
+            };
+            // Remove undefined values to keep JSON clean
+            Object.keys(saved).forEach(key => {
+              if (saved[key] === undefined) delete saved[key];
+            });
+            return saved;
+          })
         },
         uiState: {
           zoom: timelineZoom,
@@ -410,43 +462,57 @@ function EditorLayout() {
       try {
         // Prevent history tracking during load
         isUndoingRef.current = true;
-        // Basic validation
+        // Restore ALL fields exactly as saved - ensure relationships are correct for cropping
         const clips = (project?.timeline?.clips || []).filter(Boolean).map(c => {
-          const leftCrop = Number.isFinite(c.leftCropFrames) ? c.leftCropFrames : 0;
-          const rightCrop = Number.isFinite(c.rightCropFrames) ? c.rightCropFrames : 0;
-          const origStart = Number.isFinite(c.originalStart) ? c.originalStart : (Number.isFinite(c.startFrames) ? c.startFrames : 0);
-          const origEnd = Number.isFinite(c.originalEnd) ? c.originalEnd : (Number.isFinite(c.endFrames) ? c.endFrames : (origStart + 60));
-          // Derive visual positions from original + crops for consistency
-          const visualStart = origStart + leftCrop;
-          const visualEnd = origEnd - rightCrop;
-          // Fallback to provided visual if derivation is invalid
-          const startFrames = Number.isFinite(visualStart) && Number.isFinite(visualEnd) && visualEnd >= visualStart
-            ? visualStart
-            : (Number.isFinite(c.startFrames) ? c.startFrames : origStart);
-          const endFrames = Number.isFinite(visualStart) && Number.isFinite(visualEnd) && visualEnd >= visualStart
-            ? visualEnd
-            : (Number.isFinite(c.endFrames) ? c.endFrames : origEnd);
-
-          return {
+          const restored = {
+            ...c,  // Spread all saved properties first
+            // Ensure required fields have defaults
             id: c.id,
             track: typeof c.track === 'number' ? c.track : 1,
-            // Visual (what user sees)
-            startFrames,
-            endFrames,
-            leftCropFrames: leftCrop,
-            rightCropFrames: rightCrop,
-            // Original instance bounds for crop math
-            originalStart: origStart,
-            originalEnd: origEnd,
-            // Instance fields used by timeline math
-            instanceStartFrames: origStart,
-            instanceEndFrames: origEnd,
+            leftCropFrames: Number.isFinite(c.leftCropFrames) ? c.leftCropFrames : 0,
+            rightCropFrames: Number.isFinite(c.rightCropFrames) ? c.rightCropFrames : 0,
             speed: Number.isFinite(c.speed) ? c.speed : 1.0,
             character: c.character,
             filename: c.filename,
-            duration: Number.isFinite(c.source?.durationSeconds) ? c.source.durationSeconds : c.duration,
-            metadata: c.metadata || {}
           };
+          
+          // CRITICAL: Ensure instance positions are set correctly for trim logic
+          // These are the actual clip boundaries (before crops are applied)
+          const leftCrop = restored.leftCropFrames;
+          const rightCrop = restored.rightCropFrames;
+          
+          // If we have originalStart/originalEnd, use those for instance positions
+          if (Number.isFinite(c.originalStart) && Number.isFinite(c.originalEnd)) {
+            restored.originalStart = c.originalStart;
+            restored.originalEnd = c.originalEnd;
+            restored.instanceStartFrames = c.instanceStartFrames ?? c.originalStart;
+            restored.instanceEndFrames = c.instanceEndFrames ?? c.originalEnd;
+          } else if (Number.isFinite(c.instanceStartFrames) && Number.isFinite(c.instanceEndFrames)) {
+            // Fallback: use instance positions and derive original from them
+            restored.instanceStartFrames = c.instanceStartFrames;
+            restored.instanceEndFrames = c.instanceEndFrames;
+            restored.originalStart = c.originalStart ?? c.instanceStartFrames;
+            restored.originalEnd = c.originalEnd ?? c.instanceEndFrames;
+          } else {
+            // Last resort: derive from visual positions and crops
+            const visualStart = Number.isFinite(c.startFrames) ? c.startFrames : 0;
+            const visualEnd = Number.isFinite(c.endFrames) ? c.endFrames : visualStart + 60;
+            restored.instanceStartFrames = visualStart - leftCrop;
+            restored.instanceEndFrames = visualEnd + rightCrop;
+            restored.originalStart = restored.originalStart ?? restored.instanceStartFrames;
+            restored.originalEnd = restored.originalEnd ?? restored.instanceEndFrames;
+          }
+          
+          // Ensure visual positions match: visual = instance + crops
+          restored.startFrames = restored.instanceStartFrames + leftCrop;
+          restored.endFrames = restored.instanceEndFrames - rightCrop;
+          
+          // Restore duration from multiple possible sources
+          restored.duration = Number.isFinite(c.duration) ? c.duration : 
+                     (Number.isFinite(c.source?.durationSeconds) ? c.source.durationSeconds : 
+                      (Number.isFinite(c.originalDurationFrames) ? c.originalDurationFrames / 60 : undefined));
+          
+          return restored;
         });
         setTimelineClips(clips);
         if (Array.isArray(project?.uiState?.selectedClipIds) && project.uiState.selectedClipIds.length > 0) {
@@ -462,6 +528,40 @@ function EditorLayout() {
         // Reset histories
         setEditHistory([]);
         setOperationHistory([]);
+        
+        // CRITICAL: Initialize static clip data for Timeline component
+        // Timeline needs this data for trimming to work
+        const staticDataMap = new Map();
+        if (project?.timeline?.staticClipData && Array.isArray(project.timeline.staticClipData)) {
+          // Use saved static data
+          project.timeline.staticClipData.forEach(({ key, value }) => {
+            staticDataMap.set(key, value);
+          });
+        } else {
+          // Fallback: derive static data from loaded clips
+          clips.forEach(c => {
+            if (c.character && c.filename) {
+              const key = `${c.character}/${c.filename}`;
+              if (!staticDataMap.has(key)) {
+                const duration = Number.isFinite(c.duration) ? c.duration : 60;
+                staticDataMap.set(key, {
+                  character: c.character,
+                  filename: c.filename,
+                  duration: duration,
+                  originalStartFrames: c.originalStartFrames ?? 0,
+                  originalEndFrames: c.originalEndFrames ?? Math.floor(duration * 60),
+                  originalDurationFrames: c.originalDurationFrames ?? Math.floor(duration * 60)
+                });
+              }
+            }
+          });
+        }
+        // Dispatch event to Timeline to initialize static data
+        if (staticDataMap.size > 0) {
+          window.dispatchEvent(new CustomEvent('initializeStaticClipData', { 
+            detail: { staticDataMap: Object.fromEntries(staticDataMap) } 
+          }));
+        }
       } finally {
         setTimeout(() => { isUndoingRef.current = false; }, 50);
       }
@@ -511,11 +611,31 @@ function EditorLayout() {
       try {
         const project = buildProjectJson();
         const json = JSON.stringify(project, null, 2);
+        
+        // If we have a current file handle, save to it (overwrite)
         if (window.currentProjectHandle && window.currentProjectHandle.createWritable) {
           const writable = await window.currentProjectHandle.createWritable();
           await writable.write(json);
           await writable.close();
-        } else if (window.showSaveFilePicker) {
+          return; // Successfully saved to current file
+        }
+        
+        // No current file - prompt for new file (like Save As)
+        await saveProjectAs();
+      } catch (e) {
+        // User cancelled or error - only log if not a user cancellation
+        if (e.name !== 'AbortError') {
+          console.error('Failed to save project:', e);
+        }
+      }
+    };
+
+    const saveProjectAs = async () => {
+      try {
+        const project = buildProjectJson();
+        const json = JSON.stringify(project, null, 2);
+        
+        if (window.showSaveFilePicker) {
           const handle = await window.showSaveFilePicker({
             suggestedName: (window.currentProjectName || 'Xinema_Project') + '.xinema.json',
             types: [{ description: 'Xinema Project', accept: { 'application/json': ['.xinema.json'] } }]
@@ -523,13 +643,19 @@ function EditorLayout() {
           const writable = await handle.createWritable();
           await writable.write(json);
           await writable.close();
+          // Update current project handle and name
           window.currentProjectHandle = handle;
+          const file = await handle.getFile();
+          window.currentProjectName = file.name.replace(/\.xinema\.json$/i, '').replace(/\.json$/i, '') || 'Xinema Project';
         } else {
           // Fallback: download
           downloadProjectAs((window.currentProjectName || 'Xinema_Project') + '.xinema.json');
         }
       } catch (e) {
-        console.error('Failed to save project:', e);
+        // User cancelled - don't log as error
+        if (e.name !== 'AbortError') {
+          console.error('Failed to save project as:', e);
+        }
       }
     };
 
@@ -537,11 +663,13 @@ function EditorLayout() {
     window.downloadProjectAs = downloadProjectAs;
     window.openProject = openProject;
     window.saveProject = saveProject;
+    window.saveProjectAs = saveProjectAs;
     return () => {
       window.getProjectJson = undefined;
       window.downloadProjectAs = undefined;
       window.openProject = undefined;
       window.saveProject = undefined;
+      window.saveProjectAs = undefined;
     };
   }, [timelineClips, timelineZoom, playheadPosition, selectedClip]);
 

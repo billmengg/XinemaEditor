@@ -64,10 +64,7 @@ The Video Editing Features provide professional-grade editing tools for clip man
   - [x] Source file path
   - [x] Character assignment
   - [x] Custom metadata
-
-### **3. User Interface & Controls**
   
-
 ---
 
 ## ⚡ **V0.5 FEATURES**

@@ -89,6 +89,27 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
     return staticClipData.get(key) || null;
   };
 
+  // Listen for static clip data initialization from project load
+  useEffect(() => {
+    const handleInitializeStaticData = (event) => {
+      const { staticDataMap } = event.detail;
+      if (staticDataMap && typeof staticDataMap === 'object') {
+        setStaticClipData(prev => {
+          const newStaticData = new Map(prev);
+          Object.entries(staticDataMap).forEach(([key, value]) => {
+            newStaticData.set(key, value);
+          });
+          return newStaticData;
+        });
+      }
+    };
+    
+    window.addEventListener('initializeStaticClipData', handleInitializeStaticData);
+    return () => {
+      window.removeEventListener('initializeStaticClipData', handleInitializeStaticData);
+    };
+  }, []); // Only run once on mount
+
   // Notify parent component when timeline clips change
   useEffect(() => {
     if (onTimelineClipsChange && typeof onTimelineClipsChange === 'function') {

@@ -18,6 +18,8 @@ Xinema is an experimental tool for automatically matching video essay scripts wi
 - **Media Library:** Advanced clip management with search, filtering, and thumbnails
 - **Professional Timeline Preview:** Adobe Premiere Pro-level preview system with multi-level caching
 - **Timeline Component:** Complete drag-and-drop timeline with magnetic snapping and track priority
+- **Video Editing (V0):** Frame-accurate clip trimming/cropping, undo/redo system, clip properties panel
+- **Project Management:** Save/load project files with full state preservation (timeline, clips, crop states)
 - **File Navigation:** Character-based file organization and browsing
 - **Video Preview:** Real-time video playback with hardware-accelerated frame extraction
 - **Resizable UI:** Professional 3-panel layout with drag-to-resize functionality
@@ -273,6 +275,29 @@ npm start
 - **Timeline Boundaries**: Proper clip positioning constraints
 - **Visual Feedback**: Clear selection, hover effects, and interaction feedback
 
+#### **Video Editing Features (V0 Complete)**
+- **Clip Trimming & Cropping**: Visual trim handles on clip edges with drag-to-adjust
+- **Frame-Accurate Trimming**: 60fps precision for start/end point adjustment
+- **Real-Time Preview**: Live preview during trimming operations
+- **Clip Duplication**: Duplicate clips with Ctrl+Drag
+- **Undo/Redo System**: Full edit history with Ctrl+Z (undo) and Ctrl+Y (redo)
+- **Edit History Tracking**: Tracks all edit operations (add, delete, move, crop)
+- **Clip Properties Panel**: Complete clip information display with:
+  - Start/end times in frames and seconds
+  - Duration and speed multiplier
+  - Track assignment and source file paths
+  - Character assignment and custom metadata
+  - Crop information (left/right crop frames)
+  - Original clip properties for reference
+
+#### **Project Management**
+- **Save Project**: Save current timeline state to local file (overwrites open file)
+- **Save Project As**: Save to new file with custom filename
+- **Open Project**: Load saved project files with full state restoration
+- **State Preservation**: All clip positions, crops, tracks, and UI state are preserved
+- **JSON Project Format**: Human-readable project files (`.xinema.json`)
+- **Media References**: Projects store references to video files, not embedded media
+
 #### **Timeline Preview System (TimelinePreview.js)**
 - **Adobe Premiere Pro Performance**: Sub-10ms frame loading times
 - **INSTANT Preview**: Direct MP4 streaming instead of frame-by-frame loading
@@ -317,9 +342,10 @@ The application uses data files located in `Xinema/backend/data/`:
 | `ClipList` | Display available clips | `clips`, `onSelect` |
 | `Preview` | Preview selected clip | `clip`, `isPlaying` |
 | `TimelinePreview` | Professional timeline preview | `timelineClips`, `playheadPosition` |
-| `Timeline` | Timeline editor with magnetic snapping | `clips`, `onPlayheadChange` |
+| `Timeline` | Timeline editor with magnetic snapping and video editing | `clips`, `onPlayheadChange`, `onTimelineClipsChange` |
 | `FileNav` | Navigate file structure | `files`, `onNavigate` |
 | `MatchResults` | Show matching results | `matches`, `script` |
+| `ClipPreview` | Clip preview with metadata | `clip` |
 
 ---
 
@@ -378,9 +404,19 @@ cd ../frontend && npm install
 1. **Browse Clips**: Use Media Library to search and filter video clips
 2. **Preview Videos**: Click clips to preview in real-time with professional performance
 3. **Navigate Files**: Use File Navigation to browse by character
-4. **Timeline Editing**: Drag clips to timeline for sequential arrangement with magnetic snapping
+4. **Timeline Editing**: 
+   - Drag clips to timeline for sequential arrangement with magnetic snapping
+   - Trim clips by dragging trim handles on clip edges
+   - Adjust crop amounts to fine-tune clip boundaries
+   - Duplicate clips with Ctrl+Drag
+   - Move clips between tracks and positions
 5. **Professional Preview**: Real-time timeline preview with Adobe Premiere Pro-level performance
-6. **Export Project**: Save timeline as video sequence (planned for V1)
+6. **Project Management**: 
+   - Save your work: File > Save Project (overwrites current file)
+   - Save a copy: File > Save Project As (new file)
+   - Load projects: File > Open Project
+7. **Edit History**: Use Ctrl+Z to undo and Ctrl+Y to redo any editing operation
+8. **Export Timeline**: Video sequence export (planned for V1)
 
 ### **Python MVP (Script Matching)**
 1. Load data (`script.txt`, `clips.csv`, and `unique_characters.csv`)
@@ -401,6 +437,37 @@ cd ../frontend && npm install
 - **Frame-Accurate Positioning**: 60fps precision for professional editing workflows
 - **Drag-and-Drop Interface**: Seamless clip transfer from Media Library to timeline
 
+### **Video Editing Tools (V0)**
+- **Clip Trimming & Cropping**: 
+  - Visual trim handles on clip edges
+  - Drag to adjust start/end points with frame accuracy
+  - Real-time preview during trimming
+  - Preserve original clip boundaries for uncropping
+- **Clip Manipulation**:
+  - Drag clips to reposition on timeline
+  - Duplicate clips with Ctrl+Drag
+  - Multi-track placement with magnetic snapping
+- **Edit History**:
+  - Complete undo/redo system (Ctrl+Z/Ctrl+Y)
+  - Track all edit types (add, delete, move, crop)
+  - Visual history panel showing all operations
+  - Edit history preserved in project files
+- **Clip Properties**:
+  - Display all clip metadata
+  - Crop information (left/right crop frames)
+  - Original clip properties
+  - Track assignment and timing information
+
+### **Project Management**
+- **Project Files**: Save timeline state to `.xinema.json` files
+- **Full State Preservation**: All clips, positions, crops, and UI state saved
+- **Media References**: Projects reference video files, not embed media
+- **File Operations**:
+  - Save Project: Overwrites current file (if opened)
+  - Save Project As: Save to new file with custom name
+  - Open Project: Load saved projects with full restoration
+- **Static Data Management**: Preserves clip metadata needed for editing operations
+
 ### **Preview System**
 - **Adobe Premiere Pro Performance**: Sub-10ms frame loading times
 - **INSTANT Preview Technology**: Direct MP4 streaming for instant frame display
@@ -414,6 +481,7 @@ cd ../frontend && npm install
 - **Visual Feedback**: Clear selection, hover effects, and interaction indicators
 - **Timeline Boundaries**: Proper clip positioning constraints
 - **Professional Styling**: Industry-standard video editing interface design
+- **Menu Bar**: File menu with project operations (New, Open, Save, Save As)
 
 ---
 
@@ -425,30 +493,61 @@ cd ../frontend && npm install
 - [x] **Media Library**: Advanced clip management with search, filtering, and thumbnails
 - [x] **Timeline Component**: Complete drag-and-drop timeline with magnetic snapping
 - [x] **Timeline Preview**: Adobe Premiere Pro-level preview system with multi-level caching
+- [x] **Video Editing (V0)**: 
+  - [x] Frame-accurate clip trimming and cropping
+  - [x] Undo/redo system (Ctrl+Z/Ctrl+Y)
+  - [x] Edit history tracking
+  - [x] Clip properties panel
+- [x] **Project Management**: 
+  - [x] Save/load project files
+  - [x] Full state preservation
+  - [x] JSON project format
 - [x] **File Navigation**: Character-based file organization and browsing
 - [x] **Professional UI**: Resizable 3-panel layout with industry-standard interface
 - [x] **Track Priority Logic**: Highest track clips display when overlapping
 - [x] **Frame-Accurate Editing**: 60fps precision for professional video editing
 
+### **Planned Features (V0.5)**
+- [ ] **Timeline Zoom & Navigation**
+  - Zoom levels (0.5x to 4x)
+  - Mouse wheel zoom
+  - Pan timeline
+  - Zoom slider
+- [ ] **Editing Toolbar**
+  - Tool selection (Select, Split, Trim)
+  - Tool icons and labels
+  - Keyboard shortcuts for tools
+- [ ] **Context Menus**
+  - Right-click clip menu
+  - Split at playhead
+  - Trim to playhead
+  - Clip actions (delete, copy, properties)
+- [ ] **Additional Keyboard Shortcuts**
+  - Space: Play/Pause
+  - I/O: Set in/out points
+  - Home/End: Go to start/end
+  - Arrow keys: Frame step
+
 ### **Planned Features (V1)**
-- [ ] **Video Editing Tools**
-  - Clip trimming and cutting
-  - Speed adjustment
-  - Undo/redo system
-  - Timeline zoom and navigation
+- [ ] **Advanced Editing Tools**
+  - Clip splitting
+  - Clip merging
+  - Speed adjustment controls
+  - Advanced trimming (ripple, roll edits)
 - [ ] **Enhanced Preview**
-  - Clip loading optimization
   - Performance dashboard
-  - Quality scaling
+  - Quality scaling options
+  - Advanced playback controls
 - [ ] **Advanced Timeline**
   - Timeline markers
   - Grid lines
-  - Advanced snapping
-  - Multi-track editing
+  - Advanced snapping options
+  - Enhanced multi-track editing
 - [ ] **Export Functionality**
   - Video sequence export
-  - Multiple format support
+  - Multiple format support (MP4, MOV, etc.)
   - Batch processing
+  - Render queue
 
 
 ---
