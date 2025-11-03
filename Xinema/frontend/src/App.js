@@ -274,7 +274,7 @@ function App() {
               borderTopRightRadius: '8px',
               background: activeTab === tab.id ? 'white' : '#f0f0f0',
               cursor: 'pointer',
-              fontWeight: activeTab === tab.id ? '600' : '400',
+              fontWeight: '600',
               color: activeTab === tab.id ? '#007bff' : '#666',
               transition: 'all 0.2s',
               position: 'relative',
@@ -337,6 +337,7 @@ function EditorLayout() {
          const [clipPreviewTab, setClipPreviewTab] = React.useState('preview'); // Clip preview tab
          const [editHistory, setEditHistory] = React.useState([]); // Edit history log for display (each entry has enabled flag)
          const [operationHistory, setOperationHistory] = React.useState([]); // Operation history for undo
+         const [importedMedia, setImportedMedia] = React.useState([]); // Imported media files
          const isUndoingRef = React.useRef(false); // Flag to prevent tracking undo operations
          const prevTimelineClipsRef = React.useRef(timelineClips);
          const historyContainerRef = React.useRef(null); // Ref for history scroll container
@@ -414,6 +415,7 @@ function EditorLayout() {
               character: c.character,
               filename: c.filename,
               duration: c.duration,
+              type: c.type, // Save type for imported media
               source: {
                 relativeRef: c.character && c.filename ? `${c.character}/${c.filename}` : undefined,
                 backendPath: c.character && c.filename ? `/api/video/${c.character}/${c.filename}` : undefined,
@@ -421,6 +423,10 @@ function EditorLayout() {
               },
               metadata: c.metadata || {}
             };
+            // For imported media clips, save reference to imported media ID
+            if (c.type === 'imported' && c.importedMedia && c.importedMedia.id) {
+              saved.importedMediaId = c.importedMedia.id;
+            }
             // Remove undefined values to keep JSON clean
             Object.keys(saved).forEach(key => {
               if (saved[key] === undefined) delete saved[key];
@@ -432,9 +438,137 @@ function EditorLayout() {
           zoom: timelineZoom,
           playheadPosition: playheadPosition,
           selectedClipIds: selectedClip ? [selectedClip.id] : []
-        }
+        },
+        importedMedia: (importedMedia || []).map(media => {
+          const saved = {
+            id: media.id,
+            type: media.type || 'video',
+            filename: media.filename,
+            path: media.path || media.filename, // Save file path for restoration
+            size: media.size,
+            duration: media.duration,
+            width: media.width,
+            height: media.height,
+            lastModified: media.lastModified
+            // File objects and object URLs cannot be serialized, but we save the path
+            // On restore, we'll attempt to access the file using the saved path
+          };
+          
+          // Debug logging
+          console.log('💾 Saving imported media:', saved.filename, saved);
+          return saved;
+        })
       };
       return project;
+    };
+
+    // Function to restore imported media files in desktop app (Electron/Tauri)
+    const restoreImportedMediaFilesDesktop = async (mediaList) => {
+      if (!mediaList || mediaList.length === 0) {
+        return;
+      }
+      
+      console.log('🖥️ Desktop app: Auto-restoring', mediaList.length, 'files from paths');
+      
+      // In Electron, we can use Node.js fs to read files directly
+      // Check for Electron API
+      if (window.electronAPI && window.electronAPI.readFile) {
+        try {
+          const restoredMedia = await Promise.all(mediaList.map(async (media) => {
+            try {
+              const filePath = media.path;
+              if (!filePath) {
+                console.warn(`⚠️ No path for file: ${media.filename}`);
+                return { ...media, file: null, url: null, restored: true };
+              }
+              
+              console.log(`📂 Reading file: ${filePath}`);
+              
+              // Read file via Electron API
+              const fileData = await window.electronAPI.readFile(filePath);
+              
+              // Create File object from buffer
+              const file = new File([fileData], media.filename, {
+                type: 'video/mp4',
+                lastModified: media.lastModified || Date.now()
+              });
+              
+              // Create object URL and extract metadata
+              const url = URL.createObjectURL(file);
+              
+              return new Promise((resolve) => {
+                const video = document.createElement('video');
+                video.preload = 'metadata';
+                video.src = url;
+                
+                video.onloadedmetadata = () => {
+                  console.log(`✅ Restored file: ${media.filename}`);
+                  resolve({
+                    id: media.id,
+                    type: media.type || 'video',
+                    filename: media.filename,
+                    path: filePath,
+                    size: file.size,
+                    duration: video.duration,
+                    width: video.videoWidth,
+                    height: video.videoHeight,
+                    lastModified: file.lastModified,
+                    file: file,
+                    url: url,
+                    restored: false
+                  });
+                };
+                
+                video.onerror = () => {
+                  console.error(`❌ Error loading metadata for: ${media.filename}`);
+                  resolve({
+                    ...media,
+                    file: file,
+                    url: url,
+                    restored: false,
+                    restoreError: 'Failed to load video metadata'
+                  });
+                };
+                
+                video.load();
+              });
+            } catch (e) {
+              console.error(`❌ Error restoring file ${media.filename}:`, e);
+              return {
+                ...media,
+                file: null,
+                url: null,
+                restored: true,
+                restoreError: e.message
+              };
+            }
+          }));
+          
+          const successCount = restoredMedia.filter(m => m.file && m.url).length;
+          console.log(`✅ Desktop restoration complete: ${successCount}/${mediaList.length} files restored`);
+          
+          setImportedMedia(restoredMedia);
+          return restoredMedia; // Return for linking to clips
+        } catch (e) {
+          console.error('❌ Desktop file restoration error:', e);
+          // Fall back to metadata-only
+          setImportedMedia(mediaList.map(media => ({
+            ...media,
+            file: null,
+            url: null,
+            restored: true
+          })));
+        }
+      } else {
+        // No Electron API available, fall back to metadata-only
+        console.warn('⚠️ Desktop app detected but Electron API not available');
+        setImportedMedia(mediaList.map(media => ({
+          ...media,
+          file: null,
+          url: null,
+          restored: true
+        })));
+      }
     };
 
     const downloadProjectAs = (filename) => {
@@ -458,6 +592,7 @@ function EditorLayout() {
       }
     };
 
+
     const applyProjectJson = (project) => {
       try {
         // Prevent history tracking during load
@@ -474,7 +609,16 @@ function EditorLayout() {
             speed: Number.isFinite(c.speed) ? c.speed : 1.0,
             character: c.character,
             filename: c.filename,
+            type: c.type, // Restore type for imported media
           };
+          
+          // For imported media clips, link to imported media object
+          if (c.type === 'imported' && c.importedMediaId && project?.importedMedia) {
+            const importedMediaItem = project.importedMedia.find(m => m.id === c.importedMediaId);
+            if (importedMediaItem) {
+              restored.importedMedia = importedMediaItem;
+            }
+          }
           
           // CRITICAL: Ensure instance positions are set correctly for trim logic
           // These are the actual clip boundaries (before crops are applied)
@@ -558,9 +702,91 @@ function EditorLayout() {
         }
         // Dispatch event to Timeline to initialize static data
         if (staticDataMap.size > 0) {
-          window.dispatchEvent(new CustomEvent('initializeStaticClipData', { 
-            detail: { staticDataMap: Object.fromEntries(staticDataMap) } 
+          window.dispatchEvent(new CustomEvent('initializeStaticClipData', {
+            detail: { staticDataMap: Object.fromEntries(staticDataMap) }
           }));
+        }
+        
+        // Restore imported media metadata and automatically restore files if in desktop app
+        if (project?.importedMedia && Array.isArray(project.importedMedia) && project.importedMedia.length > 0) {
+          console.log('📦 Restoring imported media:', project.importedMedia.length, 'items');
+          console.log('📦 Imported media data:', JSON.stringify(project.importedMedia, null, 2));
+          
+          // Check if we're in a desktop app (Electron, Tauri, etc.)
+          const isDesktopApp = window.electronAPI || window.__TAURI__ || window.require;
+          
+          // Store imported media in a variable for linking clips
+          let restoredImportedMediaList = [];
+          
+          if (isDesktopApp) {
+            // Desktop app: Automatically restore files using file paths
+            console.log('🖥️ Desktop app detected - auto-restoring files from paths');
+            // restoreImportedMediaFilesDesktop will set the state, but we need to link clips
+            // For now, set metadata first, then restore will happen async
+            restoredImportedMediaList = project.importedMedia.map(media => ({
+              id: media.id,
+              type: media.type || 'video',
+              filename: media.filename,
+              path: media.path || media.filename,
+              size: media.size,
+              duration: media.duration,
+              width: media.width,
+              height: media.height,
+              lastModified: media.lastModified,
+              file: null,
+              url: null,
+              restored: true
+            }));
+            setImportedMedia(restoredImportedMediaList);
+            restoreImportedMediaFilesDesktop(project.importedMedia).then(restored => {
+              if (restored) {
+                // Update clips with restored imported media
+                setTimelineClips(prev => prev.map(c => {
+                  if (c.type === 'imported' && c.importedMediaId) {
+                    const mediaItem = restored.find(m => m.id === c.importedMediaId);
+                    if (mediaItem) {
+                      return { ...c, importedMedia: mediaItem };
+                    }
+                  }
+                  return c;
+                }));
+              }
+            });
+          } else {
+            // Browser: Restore metadata only, files restored on click
+            console.log('🌐 Browser detected - metadata-only restoration');
+            restoredImportedMediaList = project.importedMedia.map(media => ({
+              id: media.id,
+              type: media.type || 'video',
+              filename: media.filename,
+              path: media.path || media.filename,
+              size: media.size,
+              duration: media.duration,
+              width: media.width,
+              height: media.height,
+              lastModified: media.lastModified,
+              file: null,
+              url: null,
+              restored: true // Mark as restored so click handler knows to restore
+            }));
+            setImportedMedia(restoredImportedMediaList);
+          }
+          
+          // Link imported media to clips after a short delay to ensure state is set
+          setTimeout(() => {
+            setTimelineClips(prev => prev.map(c => {
+              if (c.type === 'imported' && c.importedMediaId) {
+                const mediaItem = restoredImportedMediaList.find(m => m.id === c.importedMediaId);
+                if (mediaItem) {
+                  return { ...c, importedMedia: mediaItem };
+                }
+              }
+              return c;
+            }));
+          }, 50);
+        } else {
+          console.log('📦 No imported media to restore');
+          setImportedMedia([]);
         }
       } finally {
         setTimeout(() => { isUndoingRef.current = false; }, 50);
@@ -671,7 +897,7 @@ function EditorLayout() {
       window.saveProject = undefined;
       window.saveProjectAs = undefined;
     };
-  }, [timelineClips, timelineZoom, playheadPosition, selectedClip]);
+  }, [timelineClips, timelineZoom, playheadPosition, selectedClip, importedMedia]);
 
 
   // Auto-scroll history to bottom when new entries are added
@@ -1247,7 +1473,11 @@ function EditorLayout() {
           overflow: 'hidden',
           position: 'relative'
         }}>
-          <ClipList onClipSelect={setSelectedClip} />
+          <ClipList 
+            onClipSelect={setSelectedClip} 
+            importedMedia={importedMedia}
+            setImportedMedia={setImportedMedia}
+          />
           
           {/* Left Resize Handle */}
           <div
@@ -1313,7 +1543,7 @@ function EditorLayout() {
                 borderTopRightRadius: '8px',
                 background: clipPreviewTab === 'preview' ? 'white' : '#e8e8e8',
                 cursor: 'pointer',
-                fontWeight: clipPreviewTab === 'preview' ? '600' : '400',
+                fontWeight: '600',
                 color: clipPreviewTab === 'preview' ? '#333' : '#666',
                 transition: 'all 0.15s',
                 fontSize: '13px',
@@ -1335,7 +1565,7 @@ function EditorLayout() {
                 borderTopRightRadius: '8px',
                 background: clipPreviewTab === 'history' ? 'white' : '#e8e8e8',
                 cursor: 'pointer',
-                fontWeight: clipPreviewTab === 'history' ? '600' : '400',
+                fontWeight: '600',
                 color: clipPreviewTab === 'history' ? '#333' : '#666',
                 transition: 'all 0.15s',
                 fontSize: '13px',

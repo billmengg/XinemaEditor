@@ -26,8 +26,13 @@ export default function ClipPreview({ clip }) {
     );
   }
 
-  // Use the backend API endpoint to serve the video - point to correct backend port
-  const videoPath = `http://localhost:5000/api/video/${clip.character}/${clip.filename}`;
+  // Use object URL for imported media, or backend API endpoint for Arcane clips
+  // If imported media has no URL, show a message that file needs to be accessed
+  const videoPath = clip.type === 'imported' && clip.url 
+    ? clip.url 
+    : clip.type === 'imported'
+    ? null // No URL available - will show message
+    : `http://localhost:5000/api/video/${clip.character}/${clip.filename}`;
 
   const handleVideoLoad = () => {
     // Video loaded successfully
@@ -70,20 +75,40 @@ export default function ClipPreview({ clip }) {
         overflow: "hidden",
         minHeight: "200px"
       }}>
-        <video
-          src={videoPath}
-          style={{
-            width: "100%",
-            height: "100%",
-            objectFit: "contain"
-          }}
-          controls
-          autoPlay
-          preload="metadata"
-          onLoadedMetadata={handleVideoLoad}
-          onError={handleVideoError}
-          onCanPlay={handleVideoCanPlay}
-        />
+        {videoPath ? (
+          <video
+            src={videoPath}
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: "contain"
+            }}
+            controls
+            autoPlay
+            preload="metadata"
+            onLoadedMetadata={handleVideoLoad}
+            onError={handleVideoError}
+            onCanPlay={handleVideoCanPlay}
+          />
+        ) : clip.type === 'imported' ? (
+          <div style={{ 
+            textAlign: "center", 
+            padding: "20px",
+            color: "#999"
+          }}>
+            <div style={{ fontSize: "14px", marginBottom: "8px" }}>
+              File not currently accessible
+            </div>
+            <div style={{ fontSize: "12px", color: "#666" }}>
+              Click on the file in the media library to restore access
+            </div>
+            {clip.path && (
+              <div style={{ fontSize: "11px", color: "#555", marginTop: "8px", fontFamily: "monospace" }}>
+                Path: {clip.path}
+              </div>
+            )}
+          </div>
+        ) : null}
       </div>
     </div>
   );

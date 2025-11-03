@@ -64,7 +64,68 @@ The Video Editing Features provide professional-grade editing tools for clip man
   - [x] Source file path
   - [x] Character assignment
   - [x] Custom metadata
-  
+
+### **3. File Import & Media Management**
+- [ ] **File Import System**
+  - [ ] Import images (PNG, JPG, JPEG, GIF, WebP)
+  - [ ] Import videos (MP4, MOV, AVI, WebM)
+  - [ ] Import audio (MP3, WAV, AAC, OGG)
+  - [ ] File picker dialog (File > Import Media)
+  - [ ] Drag-and-drop file import
+  - [ ] Multi-file selection support
+  - [ ] File validation and error handling
+  - [ ] Progress indicator for large files
+
+- [ ] **Media Processing**
+  - [ ] Extract video metadata (duration, resolution, fps)
+  - [ ] Extract audio metadata (duration, sample rate, channels)
+  - [ ] Extract image metadata (dimensions, format)
+  - [ ] Generate thumbnails for imported media
+  - [ ] Store imported files in project structure
+  - [ ] Reference management (local file paths)
+
+- [ ] **Timeline Integration**
+  - [ ] Add imported media to "Imported Media" tab
+  - [ ] Drag imported media to timeline
+  - [ ] Preview imported media in timeline
+  - [ ] Support for multiple media types on timeline
+  - [ ] Track assignment for different media types
+  - [ ] Image duration handling (stretch to fit or hold)
+
+### **4. Video Export & Rendering**
+- [ ] **Export System**
+  - [ ] Export timeline to MP4 video
+  - [ ] Render all clips in sequence
+  - [ ] Apply all edits (trims, crops, positions)
+  - [ ] Render all tracks with proper layering
+  - [ ] Export dialog with settings
+  - [ ] Progress tracking during render
+
+- [ ] **Export Settings**
+  - [ ] Resolution selection (1080p, 720p, custom)
+  - [ ] Frame rate (24fps, 30fps, 60fps)
+  - [ ] Video codec (H.264, H.265)
+  - [ ] Bitrate controls
+  - [ ] Output file location selection
+  - [ ] Filename input
+
+- [ ] **Rendering Engine**
+  - [ ] Backend rendering service
+  - [ ] FFmpeg integration for video processing
+  - [ ] Frame-by-frame composition
+  - [ ] Multi-track compositing
+  - [ ] Crop/trim application during render
+  - [ ] Audio track mixing
+  - [ ] Image stretching/positioning
+
+- [ ] **Export Preview & Validation**
+  - [ ] Preview export settings
+  - [ ] Estimated file size
+  - [ ] Estimated render time
+  - [ ] Validate timeline before export
+  - [ ] Error handling for missing media
+  - [ ] Export completion notification
+
 ---
 
 ## ⚡ **V0.5 FEATURES**
@@ -229,6 +290,16 @@ VideoEditing
 │   ├── EditHistory
 │   ├── PropertiesPanel
 │   └── ZoomControls
+├── ImportSystem
+│   ├── FileImporter
+│   ├── MediaProcessor
+│   ├── MetadataExtractor
+│   └── ThumbnailGenerator
+├── ExportSystem
+│   ├── RenderEngine
+│   ├── ExportDialog
+│   ├── FFmpegWrapper
+│   └── ProgressTracker
 ├── UserInterface
 │   ├── EditingToolbar
 │   ├── ContextMenus
@@ -258,10 +329,34 @@ const editingData = {
     duration: 300,
     speed: 1.0,
     track: 1,
-    opacity: 1.0
+    opacity: 1.0,
+    mediaType: 'video' // 'video', 'image', 'audio'
   },
+  importedMedia: [
+    {
+      id: 'media1',
+      type: 'video', // 'video', 'image', 'audio'
+      filename: 'example.mp4',
+      path: 'imported/example.mp4',
+      duration: 45.2,
+      metadata: {
+        width: 1920,
+        height: 1080,
+        fps: 30,
+        codec: 'h264'
+      },
+      thumbnail: 'thumbnails/media1.jpg'
+    }
+  ],
   timelineZoom: 1.0,
-  selectedClips: ['clip1', 'clip2']
+  selectedClips: ['clip1', 'clip2'],
+  exportSettings: {
+    resolution: '1920x1080',
+    frameRate: 60,
+    codec: 'h264',
+    bitrate: '5000k',
+    outputPath: ''
+  }
 };
 ```
 
@@ -272,6 +367,11 @@ const editingData = {
 - `adjustSpeed(clipId, speed)` - Change clip playback speed
 - `undoEdit()` - Undo last edit operation
 - `redoEdit()` - Redo undone edit operation
+- `importMedia(files)` - Import media files (video, image, audio)
+- `processMedia(file)` - Extract metadata and generate thumbnails
+- `addMediaToTimeline(mediaId, track, position)` - Add imported media to timeline
+- `exportTimeline(settings)` - Render timeline to MP4 video
+- `validateTimeline()` - Check timeline for export readiness
 
 ---
 
@@ -282,6 +382,8 @@ const editingData = {
 - **Timeline Area** - Enhanced timeline with editing tools
 - **Properties Panel** - Clip properties and settings
 - **Context Menus** - Right-click functionality
+- **Import Media Dialog** - File picker for importing media files
+- **Export Dialog** - Settings and progress for video export
 
 ### **Visual Design**
 - **Tool Indicators** - Clear visual feedback for active tools
@@ -306,18 +408,28 @@ const editingData = {
 4. ✅ Multi-track support
 
 ### **Phase 2: Enhanced Tools (Weeks 3-4)**
-1. Basic undo/redo system
+1. ✅ Basic undo/redo system
 2. Timeline zoom system
 3. Keyboard shortcuts
-4. Clip properties panel
+4. ✅ Clip properties panel
 
-### **Phase 3: Polish & UX (Weeks 5-6)**
+### **Phase 3: Import & Export (Weeks 5-6)**
+1. File import system (images, videos, audio)
+2. Media processing and metadata extraction
+3. Imported media tab integration
+4. Timeline preview for imported media
+5. Export dialog and settings UI
+6. Backend rendering service (FFmpeg)
+7. Export progress tracking
+8. Export validation
+
+### **Phase 4: Polish & UX (Weeks 7-8)**
 1. Context menus
 2. Visual feedback improvements
 3. Tool selection UI
 4. Performance optimization
 
-### **Phase 4: Advanced Features (V1)**
+### **Phase 5: Advanced Features (V1)**
 1. Clip cutting and splitting
 2. Clip merging functionality
 3. Speed adjustment controls
@@ -332,6 +444,10 @@ const editingData = {
 - [x] Users can drag and duplicate clips
 - [x] Users can position clips with magnetic snapping
 - [x] All operations are undoable
+- [ ] Users can import media files (images, videos, audio)
+- [ ] Imported media appears in timeline and can be previewed
+- [ ] Users can export timeline to MP4 video
+- [ ] Export applies all edits correctly (trims, crops, positions)
 - [ ] Timeline zoom works smoothly (Moved to V0.5)
 - [ ] Keyboard shortcuts are intuitive (Moved to V0.5)
 
@@ -341,6 +457,9 @@ const editingData = {
 - [ ] Efficient undo/redo system
 - [ ] Fast timeline rendering
 - [ ] Responsive UI during operations
+- [ ] Fast media import processing
+- [ ] Efficient export rendering (reasonable render times)
+- [ ] Export progress updates without UI blocking
 
 ### **User Experience Goals**
 - [ ] Intuitive tool selection
@@ -368,8 +487,11 @@ const editingData = {
 ### **With Backend**
 - [ ] Edit operation persistence
 - [ ] Clip metadata updates
-- [ ] Export functionality
+- [ ] Import media file handling
+- [ ] Media file storage and management
+- [ ] Export functionality (FFmpeg rendering)
 - [ ] Project save/load
+- [ ] Media processing (metadata extraction, thumbnails)
 
 ---
 

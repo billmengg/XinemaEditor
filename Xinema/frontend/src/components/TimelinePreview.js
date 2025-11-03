@@ -346,8 +346,21 @@ const TimelinePreview = ({
       
       if (playhead.activeClip) {
         const { character, filename } = playhead.activeClip;
+        const activeClip = playhead.activeClip; // Full clip object with type and importedMedia
         const clipData = { character, filename };
-        const videoUrl = `http://localhost:5000/api/video/${character}/${filename}`;
+        
+        // Determine video URL - use object URL for imported media, backend API for Arcane clips
+        let videoUrl;
+        if (activeClip.type === 'imported' && activeClip.importedMedia && activeClip.importedMedia.url) {
+          // Use object URL from imported media
+          videoUrl = activeClip.importedMedia.url;
+        } else if (activeClip.type === 'imported' && activeClip.importedMedia && activeClip.importedMedia.file) {
+          // Create object URL from file if not already created
+          videoUrl = URL.createObjectURL(activeClip.importedMedia.file);
+        } else {
+          // Use backend API for Arcane clips
+          videoUrl = `http://localhost:5000/api/video/${character}/${filename}`;
+        }
         
         // Check if this is a new clip
         const isNewClip = !currentClip || currentClip.character !== character || currentClip.filename !== filename;

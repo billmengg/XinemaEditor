@@ -2397,14 +2397,17 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
       const rightCropFrames24fps = Math.floor(rightCropFrames * 24 / 60);
       
       // Dispatch playhead update with served frame
+      // Pass full clip object so preview can determine video source (imported vs Arcane)
       const playheadEvent = new CustomEvent('playheadUpdate', {
         detail: {
           playhead: {
             position: gridAlignedPosition,
             servedFrame: servedFrame24fps,
             activeClip: {
-          character: activeClip.character,
-              filename: activeClip.filename
+              character: activeClip.character,
+              filename: activeClip.filename,
+              type: activeClip.type, // Pass type for imported media
+              importedMedia: activeClip.importedMedia // Pass imported media reference
             },
             leftCropFrames: leftCropFrames24fps,
             rightCropFrames: rightCropFrames24fps
@@ -2702,6 +2705,9 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
             // Get or create static clip data (lazy loading)
             const staticData = getOrCreateStaticClipData(clip.character, clip.filename, clipDuration);
             
+            // For imported media, store reference to the original media object
+            const importedMediaRef = clip.type === 'imported' || clip.importedMedia ? clip.importedMedia || clip : null;
+            
             const newClip = {
               id: baseId,
               // Don't spread clip to avoid overriding calculated properties
@@ -2716,7 +2722,7 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
               startFrames: constrainedPosition.startFrames,
               endFrames: constrainedPosition.endFrames,
               durationFrames: durationInFrames,
-              frameRate: 24, // Default frame rate, will be updated async
+              frameRate: 30, // Default frame rate for imported media (will be updated if not imported)
               // Reference to static clip data
               staticClipKey: `${clip.character}/${clip.filename}`,
               // Instance-specific data (these can change during trimming)
@@ -2730,17 +2736,29 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
               rightCropFrames: 0,  // Frames cropped from the right (end earlier)
               // Original positions for crop calculations
               originalStart: constrainedPosition.startFrames,  // Original timeline start position
-              originalEnd: constrainedPosition.endFrames       // Original timeline end position
+              originalEnd: constrainedPosition.endFrames,       // Original timeline end position
+              // Imported media reference
+              type: clip.type || (importedMediaRef ? 'imported' : undefined),
+              importedMedia: importedMediaRef
             };
             
             // Premiere Pro style: No bulk thumbnail generation - frames will be generated on-demand
             
             // Get actual video frame rate and update clip
-            getVideoFrameRate(clip.character, clip.filename).then(frameRate => {
+            // For imported media, use default frame rate (30fps) or extract from file if available
+            if (importedMediaRef) {
+              // Use default 30fps for imported media (can be extracted from file metadata if needed)
               setTimelineClips(prev => prev.map(c => 
-                c.id === newClip.id ? { ...c, frameRate } : c
+                c.id === newClip.id ? { ...c, frameRate: 30 } : c
               ));
-            });
+            } else {
+              // For Arcane clips, fetch frame rate from backend
+              getVideoFrameRate(clip.character, clip.filename).then(frameRate => {
+                setTimelineClips(prev => prev.map(c => 
+                  c.id === newClip.id ? { ...c, frameRate } : c
+                ));
+              });
+            }
             
             // Adding clip to timeline (event handler)
             setTimelineClips(prev => {

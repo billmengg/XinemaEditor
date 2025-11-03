@@ -222,18 +222,26 @@ function filterClips(clips, search, selectedCharacter, selectedSeason) {
   return filtered;
 }
 
-export default function ClipList({ onClipSelect }) {
+export default function ClipList({ onClipSelect, importedMedia: externalImportedMedia, setImportedMedia: setExternalImportedMedia }) {
   const [clips, setClips] = useState([]);
   const [loading, setLoading] = useState(true);
   const [sortField, setSortField] = useState("id");
   const [sortDir, setSortDir] = useState("asc");
   const [search, setSearch] = useState("");
+  const [importedSearch, setImportedSearch] = useState(""); // Search for imported media
   const [selectedClip, setSelectedClip] = useState(null);
   const [viewMode, setViewMode] = useState("grid"); // "table" or "grid"
   const [selectedCharacter, setSelectedCharacter] = useState("all");
   const [selectedSeason, setSelectedSeason] = useState("all");
   const [contextMenu, setContextMenu] = useState(null);
   const [columnsExpanded, setColumnsExpanded] = useState(false);
+  const [activeTab, setActiveTab] = useState("arcane"); // "arcane" or "imported"
+  // Use external state if provided, otherwise use internal state
+  const [internalImportedMedia, setInternalImportedMedia] = useState([]);
+  const importedMedia = externalImportedMedia !== undefined ? externalImportedMedia : internalImportedMedia;
+  const setImportedMedia = setExternalImportedMedia || setInternalImportedMedia;
+  const [selectedImportedMedia, setSelectedImportedMedia] = useState(null); // Selected imported media item
+  const [isDraggingOver, setIsDraggingOver] = useState(false); // Track if dragging files over drop zone
   const [draggedClip, setDraggedClip] = useState(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
@@ -476,6 +484,14 @@ export default function ClipList({ onClipSelect }) {
   const characters = [...new Set(clips.map(clip => clip.character).filter(Boolean))].sort();
   const seasons = [...new Set(clips.map(clip => clip.season).filter(Boolean))].sort();
 
+  // Filter imported media based on search
+  const filteredImportedMedia = importedMedia.filter(media => {
+    if (!importedSearch) return true;
+    const searchLower = importedSearch.toLowerCase();
+    return media.filename.toLowerCase().includes(searchLower) ||
+           (media.path && media.path.toLowerCase().includes(searchLower));
+  });
+
   // Sorting logic
   const sortedClips = [...filterClips(clips, search, selectedCharacter, selectedSeason)].sort((a, b) => {
     let valA = a[sortField];
@@ -513,7 +529,22 @@ export default function ClipList({ onClipSelect }) {
     }
   };
 
-  const handleMouseDown = (e, clip) => {
+  // Convert imported media to clip format for timeline
+  const convertImportedMediaToClip = (media) => {
+    return {
+      id: media.id,
+      character: 'Imported', // Use 'Imported' as character for imported media
+      filename: media.filename,
+      duration: media.duration || 5, // Use actual duration or default
+      description: `Imported media: ${media.filename}`,
+      // Add metadata for timeline
+      type: 'imported',
+      importedMedia: media, // Keep reference to original media object
+      // Timeline will use character and filename to create staticClipKey
+    };
+  };
+
+  const handleMouseDown = (e, clip, isImportedMedia = false) => {
     // Check if currentTarget exists
     if (!e.currentTarget) {
       // currentTarget is null in handleMouseDown
@@ -530,6 +561,9 @@ export default function ClipList({ onClipSelect }) {
     if (now - dragEndTime < 100) { // 100ms debounce
       return;
     }
+    
+    // Convert imported media to clip format if needed
+    const clipToDrag = isImportedMedia ? convertImportedMediaToClip(clip) : clip;
     
     // Store initial mouse position for drag detection
     const startX = e.clientX;
@@ -578,27 +612,35 @@ export default function ClipList({ onClipSelect }) {
         }
         
         // Fetch actual duration only when drag initiates (clip should be lazy loaded)
-        let durationInSeconds = parseDurationToSeconds(clip.duration);
+        let durationInSeconds = 5; // Default fallback
         
-        // If duration is still placeholder, fetch the real duration
-        if (clip.duration === "0:00" || !clip.duration) {
-          try {
-            const response = await fetch(`http://localhost:5000/api/duration/${clip.character}/${clip.filename}`);
-            const data = await response.json();
-            
-            if (data.duration && data.duration !== "0:00") {
-              durationInSeconds = parseDurationToSeconds(data.duration);
+        if (isImportedMedia) {
+          // For imported media, use the duration from the media object (already in seconds)
+          durationInSeconds = clipToDrag.duration || 5;
+        } else {
+          // For Arcane clips, parse duration string or fetch from backend
+          durationInSeconds = parseDurationToSeconds(clipToDrag.duration);
+          
+          // If duration is still placeholder, fetch the real duration
+          if (clipToDrag.duration === "0:00" || !clipToDrag.duration) {
+            try {
+              const response = await fetch(`http://localhost:5000/api/duration/${clipToDrag.character}/${clipToDrag.filename}`);
+              const data = await response.json();
+              
+              if (data.duration && data.duration !== "0:00") {
+                durationInSeconds = parseDurationToSeconds(data.duration);
+              }
+            } catch (error) {
+              // Error fetching duration
             }
-          } catch (error) {
-            // Error fetching duration
           }
         }
         
         // Create clip with actual duration
         const clipWithDuration = {
-          ...clip,
+          ...clipToDrag,
           duration: durationInSeconds,
-          durationString: clip.duration
+          durationString: clipToDrag.duration
         };
         
         setDraggedClip(clipWithDuration);
@@ -685,14 +727,231 @@ export default function ClipList({ onClipSelect }) {
     // TODO: Implement actual actions
   };
 
+  // Handle file drop for imported media
+  const handleFileDrop = async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOver(false);
+    
+    const files = Array.from(e.dataTransfer.files);
+    const videoFiles = files.filter(file => {
+      const ext = file.name.toLowerCase().split('.').pop();
+      return ['mp4', 'mov', 'avi', 'webm'].includes(ext);
+    });
+
+    if (videoFiles.length === 0) {
+      alert('Please drop MP4, MOV, AVI, or WebM video files');
+      return;
+    }
+
+    // Process each file
+    for (const file of videoFiles) {
+      // Get file path - in Electron/desktop apps, file.path has full path
+      // In browsers, we only have the filename
+      // Check if we're in a desktop app context
+      const isDesktopApp = window.electronAPI || window.__TAURI__ || window.require;
+      const filePath = isDesktopApp && file.path ? file.path : file.name;
+      
+      // Create video element to extract metadata
+      const video = document.createElement('video');
+      const url = URL.createObjectURL(file);
+      
+      video.preload = 'metadata';
+      video.src = url;
+      
+      video.onloadedmetadata = async () => {
+        const mediaItem = {
+          id: `imported-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          type: 'video',
+          filename: file.name,
+          path: filePath,
+          size: file.size,
+          duration: video.duration,
+          width: video.videoWidth,
+          height: video.videoHeight,
+          lastModified: file.lastModified,
+          file: file, // Store file object for potential future use
+          url: url // Store object URL for preview (will be revoked after metadata load)
+        };
+        
+        setImportedMedia(prev => [...prev, mediaItem]);
+        // Note: URL.revokeObjectURL will be called after we're done with metadata
+        // We keep the file object so we can recreate the URL if needed
+      };
+      
+      video.onerror = () => {
+        console.error('Error loading video metadata:', file.name);
+        URL.revokeObjectURL(url);
+      };
+      
+      // Load metadata
+      video.load();
+    }
+  };
+
+  const handleFileDragOver = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOver(true);
+  };
+
+  const handleFileDragEnter = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOver(true);
+  };
+
+  const handleFileDragLeave = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // Only set to false if we're actually leaving the drop zone
+    if (!e.currentTarget.contains(e.relatedTarget)) {
+      setIsDraggingOver(false);
+    }
+  };
+
+  // Handle clicking on imported media
+  const handleImportedMediaClick = async (media) => {
+    setSelectedImportedMedia(media);
+    setSelectedClip(null); // Clear Arcane clip selection
+    if (onClipSelect) {
+      // Use stored URL or create one from file if needed
+      let previewUrl = media.url || (media.file ? URL.createObjectURL(media.file) : null);
+      let file = media.file;
+      
+      // If this is restored media without a file, automatically restore it when clicked
+      if (!file && !previewUrl && media.restored && window.showOpenFilePicker) {
+        try {
+          console.log(`🔄 Auto-restoring file: "${media.filename}"`);
+          
+          // Open file picker to restore this specific file (user gesture from click)
+          const fileHandles = await window.showOpenFilePicker({
+            suggestedName: media.filename,
+            types: [{ 
+              description: 'Video Files', 
+              accept: { 
+                'video/*': ['.mp4', '.mov', '.avi', '.webm'] 
+              } 
+            }],
+            excludeAcceptAllOption: false,
+            multiple: false
+          });
+          
+          if (fileHandles && fileHandles.length > 0) {
+            file = await fileHandles[0].getFile();
+            
+            // Verify it's the right file (check filename and size)
+            const filenameMatch = file.name === media.filename || file.name.toLowerCase() === media.filename.toLowerCase();
+            const sizeMatch = !media.size || Math.abs(file.size - media.size) < 1000;
+            
+            if (filenameMatch || sizeMatch) {
+              // Extract metadata and create object URL
+              const video = document.createElement('video');
+              previewUrl = URL.createObjectURL(file);
+              video.preload = 'metadata';
+              video.src = previewUrl;
+              
+              await new Promise((resolve, reject) => {
+                video.onloadedmetadata = () => {
+                  // Update the media item with restored file and actual metadata
+                  const updatedMedia = {
+                    ...media,
+                    file: file,
+                    url: previewUrl,
+                    duration: video.duration, // Use actual duration
+                    width: video.videoWidth,  // Use actual dimensions
+                    height: video.videoHeight,
+                    restored: false
+                  };
+                  
+                  setImportedMedia(prev => prev.map(m => 
+                    m.id === media.id ? updatedMedia : m
+                  ));
+                  
+                  console.log(`✅ Auto-restored file: "${file.name}"`);
+                  resolve();
+                };
+                video.onerror = () => {
+                  // Still use the file even if metadata extraction fails
+                  const updatedMedia = {
+                    ...media,
+                    file: file,
+                    url: previewUrl,
+                    restored: false
+                  };
+                  setImportedMedia(prev => prev.map(m => 
+                    m.id === media.id ? updatedMedia : m
+                  ));
+                  resolve();
+                };
+                video.load();
+              });
+            } else {
+              alert(`Selected file doesn't match "${media.filename}". Please select the correct file.`);
+              return;
+            }
+          }
+        } catch (e) {
+          if (e.name !== 'AbortError') {
+            console.error('Error restoring file:', e);
+            alert(`Could not restore file: ${e.message || 'Unknown error'}`);
+          }
+        }
+      }
+      
+      // Show preview if we have a file/URL, or just metadata if not
+      if (previewUrl || file) {
+        onClipSelect({
+          id: media.id,
+          filename: media.filename,
+          character: 'Imported',
+          duration: media.duration,
+          path: media.path,
+          type: 'imported',
+          file: file,
+          url: previewUrl,
+          width: media.width,
+          height: media.height
+        });
+      } else {
+        // Show metadata even without file access
+        onClipSelect({
+          id: media.id,
+          filename: media.filename,
+          character: 'Imported',
+          duration: media.duration,
+          path: media.path,
+          type: 'imported',
+          file: null,
+          url: null,
+          width: media.width,
+          height: media.height
+        });
+      }
+    }
+  };
 
   if (loading) return <div style={{padding:24}}>Loading media library</div>;
 
   return (
     <div 
       className="clip-list-container"
-      style={{ height: "100%", display: "flex", position: "relative", width: "100%" }}
+      style={{ height: "100%", display: "flex", flexDirection: "column", position: "relative", width: "100%" }}
     >
+      {/* Media Library Header */}
+      <div style={{ 
+        padding: "12px 16px", 
+        borderBottom: "1px solid #ddd", 
+        background: "white",
+        flexShrink: 0
+      }}>
+        <h2 style={{ margin: 0, fontSize: "16px", fontWeight: "600", color: "#333" }}>
+          Media Library
+        </h2>
+      </div>
+      
+      {/* Main Content Area */}
+      <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
       {/* Drag Preview */}
       {isDragging && draggedClip && !isOverTimeline && (
         <div
@@ -809,135 +1068,126 @@ export default function ClipList({ onClipSelect }) {
           onClick={() => setContextMenu(null)}
         />
       )}
-      {/* Folder Navigation */}
+      
+      {/* Clip Browser - Now on the LEFT */}
+      <div style={{ flex: "1", borderRight: activeTab === "arcane" ? "1px solid #eee" : "none", display: "flex", flexDirection: "column", minWidth: 0, overflow: "hidden" }}>
+        {/* Fixed Header with Tabs */}
       <div style={{ 
-        width: "250px", 
-        minWidth: "250px",
-        maxWidth: "250px",
-        padding: "16px", 
-        borderRight: "1px solid #eee", 
-        background: "#f8f9fa",
-        overflow: "auto",
-        flexShrink: 0
-      }}>
-        <h3 style={{ margin: "0 0 16px 0", fontSize: "16px", fontWeight: "600" }}>Navigation</h3>
-        
-        {/* Character Filter */}
-        <div style={{ marginBottom: "20px" }}>
-          <h4 style={{ margin: "0 0 8px 0", fontSize: "14px", fontWeight: "600", color: "#666" }}>Characters</h4>
-          <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+          padding: "16px 16px 0 16px", 
+          borderBottom: "1px solid #eee", 
+          background: "white",
+          minHeight: "124px" // Fixed height to prevent layout shifts
+        }}>
+          {/* Tabs */}
+          <div style={{ 
+            display: "flex", 
+            gap: "0", 
+            marginBottom: "16px", 
+            borderBottom: "1px solid #e0e0e0",
+            background: "white"
+          }}>
             <button
-              onClick={() => setSelectedCharacter("all")}
+              onClick={() => setActiveTab("arcane")}
               style={{
-                padding: "6px 12px",
-                border: "1px solid #ddd",
-                background: selectedCharacter === "all" ? "#007bff" : "white",
-                color: selectedCharacter === "all" ? "white" : "#333",
-                borderRadius: "4px",
+                padding: "10px 20px",
+                border: "none",
+                borderBottom: activeTab === "arcane" ? "2px solid #007bff" : "2px solid transparent",
+                background: "transparent",
+                color: activeTab === "arcane" ? "#007bff" : "#666",
                 cursor: "pointer",
-                fontSize: "13px",
-                textAlign: "left"
+                fontSize: "14px",
+                fontWeight: "600",
+                marginBottom: "-1px",
+                transition: "all 0.15s ease",
+                outline: "none",
+                position: "relative"
+              }}
+              onMouseEnter={(e) => {
+                if (activeTab !== "arcane") {
+                  e.target.style.color = "#007bff";
+                  e.target.style.background = "#f8f9fa";
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (activeTab !== "arcane") {
+                  e.target.style.color = "#666";
+                  e.target.style.background = "transparent";
+                }
               }}
             >
-              All Characters ({clips.length})
+              Arcane Clips
             </button>
-            {characters.map(char => {
-              const count = clips.filter(clip => clip.character === char).length;
-              return (
                 <button
-                  key={char}
-                  onClick={() => setSelectedCharacter(char)}
+              onClick={() => setActiveTab("imported")}
                   style={{
-                    padding: "6px 12px",
-                    border: "1px solid #ddd",
-                    background: selectedCharacter === char ? "#007bff" : "white",
-                    color: selectedCharacter === char ? "white" : "#333",
-                    borderRadius: "4px",
+                padding: "10px 20px",
+                border: "none",
+                borderBottom: activeTab === "imported" ? "2px solid #007bff" : "2px solid transparent",
+                background: "transparent",
+                color: activeTab === "imported" ? "#007bff" : "#666",
                     cursor: "pointer",
-                    fontSize: "13px",
-                    textAlign: "left"
-                  }}
-                >
-                  {char} ({count})
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Season Filter */}
-        <div style={{ marginBottom: "20px" }}>
-          <h4 style={{ margin: "0 0 8px 0", fontSize: "14px", fontWeight: "600", color: "#666" }}>Seasons</h4>
-          <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-            <button
-              onClick={() => setSelectedSeason("all")}
-              style={{
-                padding: "6px 12px",
-                border: "1px solid #ddd",
-                background: selectedSeason === "all" ? "#28a745" : "white",
-                color: selectedSeason === "all" ? "white" : "#333",
-                borderRadius: "4px",
-                cursor: "pointer",
-                fontSize: "13px",
-                textAlign: "left"
+                fontSize: "14px",
+                fontWeight: "600",
+                marginBottom: "-1px",
+                transition: "all 0.15s ease",
+                outline: "none",
+                position: "relative"
+              }}
+              onMouseEnter={(e) => {
+                if (activeTab !== "imported") {
+                  e.target.style.color = "#007bff";
+                  e.target.style.background = "#f8f9fa";
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (activeTab !== "imported") {
+                  e.target.style.color = "#666";
+                  e.target.style.background = "transparent";
+                }
               }}
             >
-              All Seasons
-            </button>
-            {seasons.map(season => {
-              const count = clips.filter(clip => clip.season === season).length;
-              return (
-                <button
-                  key={season}
-                  onClick={() => setSelectedSeason(season)}
-                  style={{
-                    padding: "6px 12px",
-                    border: "1px solid #ddd",
-                    background: selectedSeason === season ? "#28a745" : "white",
-                    color: selectedSeason === season ? "white" : "#333",
-                    borderRadius: "4px",
-                    cursor: "pointer",
-                    fontSize: "13px",
-                    textAlign: "left"
-                  }}
-                >
-                  {season} ({count})
+              Imported Media
                 </button>
-              );
-            })}
-          </div>
-        </div>
       </div>
 
-      {/* Clip Browser */}
-      <div style={{ flex: "1", borderRight: "1px solid #eee", display: "flex", flexDirection: "column", minWidth: 0, overflow: "hidden" }}>
-        {/* Fixed Header */}
-        <div style={{ padding: "16px", borderBottom: "1px solid #eee", background: "white" }}>
-          <h2 style={{ margin: "0 0 16px 0", fontSize: "18px", fontWeight: "600" }}>Media Library</h2>
-          
-          {/* Search and Controls */}
-          <div style={{ display: "flex", gap: "8px", marginBottom: "16px" }}>
+          {/* Search and Controls - Always rendered to maintain layout */}
+          <div style={{ 
+            paddingBottom: "16px",
+            opacity: activeTab === "arcane" ? 1 : 0,
+            visibility: activeTab === "arcane" ? "visible" : "hidden",
+            height: activeTab === "arcane" ? "auto" : "0",
+            overflow: "hidden",
+            transition: "opacity 0.15s ease, visibility 0.15s ease"
+          }}>
+            <div style={{ display: "flex", gap: "8px", marginBottom: "12px" }}>
             <input
               type="text"
               placeholder="Search clips by filename, character, id, season, episode"
               value={search}
               onChange={e => setSearch(e.target.value)}
+                disabled={activeTab !== "arcane"}
               style={{
                 flex: 1,
                 padding: "8px 12px",
                 border: "1px solid #ddd",
                 borderRadius: "4px",
-                fontSize: "14px"
+                  fontSize: "14px",
+                  transition: "border-color 0.15s ease"
               }}
             />
             <button
               onClick={() => setViewMode(viewMode === "table" ? "grid" : "table")}
+                disabled={activeTab !== "arcane"}
               style={{
-                padding: "8px 12px",
+                  padding: "8px 16px",
                 border: "1px solid #ddd",
                 borderRadius: "4px",
                 background: "white",
-                cursor: "pointer"
+                  cursor: activeTab === "arcane" ? "pointer" : "not-allowed",
+                  fontSize: "14px",
+                  fontWeight: "500",
+                  transition: "all 0.15s ease",
+                  minWidth: "80px"
               }}
             >
               {viewMode === "table" ? "Grid" : "Table"}
@@ -945,16 +1195,54 @@ export default function ClipList({ onClipSelect }) {
           </div>
 
           {/* Table Controls */}
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div style={{ fontSize: "14px", fontWeight: "600" }}>
-              {sortedClips.length} clips found
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", height: "24px" }}>
+              <div style={{ fontSize: "14px", fontWeight: "600", color: "#333" }}>
+                {activeTab === "arcane" ? `${sortedClips.length} clips found` : ""}
+              </div>
+            </div>
+          </div>
+          
+          {/* Imported Media Search */}
+          <div style={{ 
+            paddingBottom: "16px",
+            opacity: activeTab === "imported" ? 1 : 0,
+            visibility: activeTab === "imported" ? "visible" : "hidden",
+            height: activeTab === "imported" ? "auto" : "0",
+            overflow: "hidden",
+            transition: "opacity 0.15s ease, visibility 0.15s ease"
+          }}>
+            <div style={{ display: "flex", gap: "8px", marginBottom: "12px" }}>
+              <input
+                type="text"
+                placeholder="Search imported media by filename"
+                value={importedSearch}
+                onChange={e => setImportedSearch(e.target.value)}
+                disabled={activeTab !== "imported"}
+                style={{
+                  flex: 1,
+                  padding: "8px 12px",
+                  border: "1px solid #ddd",
+                  borderRadius: "4px",
+                  fontSize: "14px",
+                  transition: "border-color 0.15s ease"
+                }}
+              />
+            </div>
+
+            {/* Imported Media Count */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", height: "24px" }}>
+              <div style={{ fontSize: "14px", fontWeight: "600", color: "#333" }}>
+                {activeTab === "imported" ? `${filteredImportedMedia.length} media file${filteredImportedMedia.length !== 1 ? 's' : ''} found` : ""}
+              </div>
             </div>
           </div>
         </div>
 
         {/* Scrollable Content */}
         <div style={{ flex: 1, overflow: "auto", padding: "16px", minWidth: 0 }}>
-
+          {/* Show content based on active tab */}
+          {activeTab === "arcane" ? (
+            <>
           {/* Table View */}
           {viewMode === "table" && (
             <div style={{ position: "relative" }}>
@@ -1248,11 +1536,313 @@ export default function ClipList({ onClipSelect }) {
               No clips found matching your search.
             </div>
           )}
+            </>
+          ) : (
+            /* Imported Media Tab */
+            <div 
+              style={{ 
+                flex: 1, 
+                overflow: "auto", 
+                padding: "16px",
+                minHeight: "200px",
+                position: "relative"
+              }}
+              onDrop={handleFileDrop}
+              onDragOver={handleFileDragOver}
+              onDragEnter={handleFileDragEnter}
+              onDragLeave={handleFileDragLeave}
+            >
+              {importedMedia.length === 0 ? (
+                <div style={{ 
+                  padding: "48px", 
+                  textAlign: "center", 
+                  color: isDraggingOver ? "#007bff" : "#999",
+                  border: isDraggingOver ? "2px dashed #007bff" : "2px dashed #ddd",
+                  borderRadius: "8px",
+                  backgroundColor: isDraggingOver ? "#e3f2fd" : "#fafafa",
+                  transition: "all 0.2s ease"
+                }}>
+                  <div style={{ fontSize: "16px", marginBottom: "8px", fontWeight: "600" }}>
+                    {isDraggingOver ? "Drop files here" : "No imported media"}
+                  </div>
+                  <div style={{ fontSize: "14px", marginBottom: "16px" }}>
+                    Drag and drop MP4, MOV, AVI, or WebM files here
+                  </div>
+                  <div style={{ fontSize: "12px", color: "#aaa" }}>
+                    Or use File {'>'} Import Media...
+                  </div>
+                </div>
+              ) : filteredImportedMedia.length === 0 ? (
+                <div style={{ 
+                  padding: "48px", 
+                  textAlign: "center", 
+                  color: "#999",
+                  fontSize: "16px",
+                  fontWeight: "600"
+                }}>
+                  No imported media found matching &quot;{importedSearch}&quot;
+                </div>
+              ) : (
+                <>
+                  {isDraggingOver && (
+                    <div style={{
+                      position: "absolute",
+                      top: "16px",
+                      left: "16px",
+                      right: "16px",
+                      bottom: "16px",
+                      border: "2px dashed #007bff",
+                      borderRadius: "8px",
+                      backgroundColor: "rgba(0, 123, 255, 0.1)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      zIndex: 100,
+                      pointerEvents: "none"
+                    }}>
+                      <div style={{ fontSize: "18px", fontWeight: "600", color: "#007bff" }}>
+                        Drop files here to import
+                      </div>
+                    </div>
+                  )}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: "8px" }}>
+                  {filteredImportedMedia.map((media) => {
+                    // Use stored URL or create one from file if needed
+                    const thumbnailUrl = media.url || (media.file ? URL.createObjectURL(media.file) : null);
+                    
+                    return (
+                      <div
+                        key={media.id}
+                        onClick={(e) => {
+                          // Prevent click if we just finished dragging
+                          if (isDragging || (Date.now() - dragEndTime) < 100) {
+                            return;
+                          }
+                          e.stopPropagation();
+                          handleImportedMediaClick(media);
+                        }}
+                        onMouseDown={(e) => handleMouseDown(e, media, true)}
+                        style={{
+                          border: selectedImportedMedia?.id === media.id ? "2px solid #007bff" : "1px solid #ddd",
+                          borderRadius: "6px",
+                          padding: "8px",
+                          cursor: isDragging && draggedClip?.id === media.id ? "grabbing" : "grab",
+                          background: selectedImportedMedia?.id === media.id ? "#e3f2fd" : "white",
+                          transition: "all 0.2s",
+                          boxShadow: isDragging && draggedClip?.id === media.id ? "0 4px 12px rgba(0,123,255,0.3)" : "0 1px 3px rgba(0,0,0,0.1)",
+                          transform: isDragging && draggedClip?.id === media.id ? "scale(1.02)" : "scale(1)",
+                          opacity: isDragging && draggedClip?.id !== media.id ? "0.6" : "1"
+                        }}
+                        onMouseEnter={(e) => {
+                          if (selectedImportedMedia?.id !== media.id && !isDragging) {
+                            e.currentTarget.style.backgroundColor = "#f8f9fa";
+                            e.currentTarget.style.borderColor = "#007bff";
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (selectedImportedMedia?.id !== media.id && !isDragging) {
+                            e.currentTarget.style.backgroundColor = "white";
+                            e.currentTarget.style.borderColor = "#ddd";
+                          }
+                        }}
+                      >
+                        {/* Thumbnail */}
+                        <div style={{
+                          width: "100%",
+                          aspectRatio: "16/9",
+                          background: "#000",
+                          borderRadius: "4px",
+                          marginBottom: "8px",
+                          overflow: "hidden",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          position: "relative"
+                        }}>
+                          {thumbnailUrl ? (
+                            <video
+                              src={thumbnailUrl}
+                              style={{
+                                width: "100%",
+                                height: "100%",
+                                objectFit: "cover"
+                              }}
+                              muted
+                              preload="metadata"
+                              onLoadedMetadata={(e) => {
+                                // Seek to first frame for thumbnail
+                                e.target.currentTime = 0.1;
+                              }}
+                              onError={(e) => {
+                                e.target.style.display = "none";
+                                if (e.target.nextSibling) {
+                                  e.target.nextSibling.style.display = "flex";
+                                }
+                              }}
+                            />
+                          ) : null}
+                          <div style={{ 
+                            display: thumbnailUrl ? "none" : "flex", 
+                            width: "100%", 
+                            height: "100%", 
+                            alignItems: "center", 
+                            justifyContent: "center",
+                            fontSize: "20px",
+                            color: "#fff"
+                          }}>
+                            🎬
+        </div>
+      </div>
+      
+                        {/* Filename */}
+                        <div style={{ 
+                          fontWeight: "600", 
+                          marginBottom: "4px", 
+                          fontSize: "13px",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          display: "-webkit-box",
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: "vertical",
+                          lineHeight: "1.2"
+                        }}>
+                          {media.filename}
+                        </div>
+                        
+                        {/* Duration */}
+                        <div style={{ fontSize: "11px", color: "#888", marginBottom: "4px" }}>
+                          Duration: {media.duration ? `${media.duration.toFixed(2)}s` : 'Unknown'}
+                        </div>
+                        
+                        {/* Resolution */}
+                        <div style={{ fontSize: "11px", color: "#888", marginBottom: "4px" }}>
+                          {media.width && media.height ? `${media.width}x${media.height}` : 'Unknown resolution'}
+                        </div>
+                        
+                        {/* File size */}
+                        <div style={{ 
+                          fontSize: "11px", 
+                          color: "#888",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap"
+                        }}>
+                          {media.size ? `${(media.size / 1024 / 1024).toFixed(2)} MB` : 'Unknown size'}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                </>
+              )}
+            </div>
+          )}
 
         </div>
       </div>
       
+      {/* Folder Navigation - Now on the RIGHT, only visible for Arcane Clips */}
+      {activeTab === "arcane" && (
+        <div style={{ 
+          width: "250px", 
+          minWidth: "250px",
+          maxWidth: "250px",
+          padding: "16px", 
+          borderLeft: "1px solid #eee", 
+          background: "#f8f9fa",
+          overflow: "auto",
+          flexShrink: 0
+        }}>
+          
+          {/* Character Filter */}
+          <div style={{ marginBottom: "20px" }}>
+            <h4 style={{ margin: "0 0 8px 0", fontSize: "14px", fontWeight: "600", color: "#666" }}>Characters</h4>
+            <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+              <button
+                onClick={() => setSelectedCharacter("all")}
+                style={{
+                  padding: "6px 12px",
+                  border: "1px solid #ddd",
+                  background: selectedCharacter === "all" ? "#007bff" : "white",
+                  color: selectedCharacter === "all" ? "white" : "#333",
+                  borderRadius: "4px",
+                  cursor: "pointer",
+                  fontSize: "13px",
+                  textAlign: "left"
+                }}
+              >
+                All Characters ({clips.length})
+              </button>
+              {characters.map(char => {
+                const count = clips.filter(clip => clip.character === char).length;
+                return (
+                  <button
+                    key={char}
+                    onClick={() => setSelectedCharacter(char)}
+                    style={{
+                      padding: "6px 12px",
+                      border: "1px solid #ddd",
+                      background: selectedCharacter === char ? "#007bff" : "white",
+                      color: selectedCharacter === char ? "white" : "#333",
+                      borderRadius: "4px",
+                      cursor: "pointer",
+                      fontSize: "13px",
+                      textAlign: "left"
+                    }}
+                  >
+                    {char} ({count})
+                  </button>
+                );
+              })}
+            </div>
+          </div>
 
+          {/* Season Filter */}
+          <div style={{ marginBottom: "20px" }}>
+            <h4 style={{ margin: "0 0 8px 0", fontSize: "14px", fontWeight: "600", color: "#666" }}>Seasons</h4>
+            <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+              <button
+                onClick={() => setSelectedSeason("all")}
+                style={{
+                  padding: "6px 12px",
+                  border: "1px solid #ddd",
+                  background: selectedSeason === "all" ? "#28a745" : "white",
+                  color: selectedSeason === "all" ? "white" : "#333",
+                  borderRadius: "4px",
+                  cursor: "pointer",
+                  fontSize: "13px",
+                  textAlign: "left"
+                }}
+              >
+                All Seasons
+              </button>
+              {seasons.map(season => {
+                const count = clips.filter(clip => clip.season === season).length;
+                return (
+                  <button
+                    key={season}
+                    onClick={() => setSelectedSeason(season)}
+                    style={{
+                      padding: "6px 12px",
+                      border: "1px solid #ddd",
+                      background: selectedSeason === season ? "#28a745" : "white",
+                      color: selectedSeason === season ? "white" : "#333",
+                      borderRadius: "4px",
+                      cursor: "pointer",
+                      fontSize: "13px",
+                      textAlign: "left"
+                    }}
+                  >
+                    {season} ({count})
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+      
+      </div> {/* End Main Content Area */}
     </div>
   );
 }
