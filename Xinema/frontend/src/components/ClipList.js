@@ -1,5 +1,8 @@
 import React, { useEffect, useState, useRef, useCallback } from "react";
 import { logOnce } from '../utils/consoleDeduplication';
+import { generateAudioWaveform } from '../utils/audioWaveform';
+import { TARGET_ASPECT_RATIO_CSS } from '../utils/constants';
+import { apiEndpoints } from '../config/api';
 
 // Lazy loading duration component
 const LazyDuration = ({ clip }) => {
@@ -40,7 +43,7 @@ const LazyDuration = ({ clip }) => {
       setIsLoading(true);
       
       // Fetch actual duration from backend
-      fetch(`http://localhost:5000/api/duration/${clip.character}/${clip.filename}`)
+      fetch(apiEndpoints.duration(clip.character, clip.filename))
         .then(response => response.json())
         .then(data => {
           setDuration(data.duration);
@@ -150,7 +153,7 @@ const LazyThumbnail = ({ clip, onError }) => {
     >
       {isVisible && !hasError && (
         <video 
-          src={`http://localhost:5000/api/video/${clip.character}/${clip.filename}`}
+          src={apiEndpoints.video(clip.character, clip.filename)}
           style={{ 
             width: "100%", 
             height: "100%", 
@@ -269,7 +272,7 @@ export default function ClipList({ onClipSelect, importedMedia: externalImported
 
   useEffect(() => {
     async function fetchClips() {
-      const resp = await fetch("http://localhost:5000/api/files");
+      const resp = await fetch(apiEndpoints.files());
       const data = await resp.json();
       setClips(data);
       setLoading(false);
@@ -624,7 +627,7 @@ export default function ClipList({ onClipSelect, importedMedia: externalImported
           // If duration is still placeholder, fetch the real duration
           if (clipToDrag.duration === "0:00" || !clipToDrag.duration) {
             try {
-              const response = await fetch(`http://localhost:5000/api/duration/${clipToDrag.character}/${clipToDrag.filename}`);
+              const response = await fetch(apiEndpoints.duration(clipToDrag.character, clipToDrag.filename));
               const data = await response.json();
               
               if (data.duration && data.duration !== "0:00") {
@@ -734,58 +737,125 @@ export default function ClipList({ onClipSelect, importedMedia: externalImported
     setIsDraggingOver(false);
     
     const files = Array.from(e.dataTransfer.files);
-    const videoFiles = files.filter(file => {
+    const mediaFiles = files.filter(file => {
       const ext = file.name.toLowerCase().split('.').pop();
-      return ['mp4', 'mov', 'avi', 'webm'].includes(ext);
+      return ['mp4', 'mov', 'avi', 'webm', 'mp3', 'wav', 'ogg', 'aac'].includes(ext);
     });
 
-    if (videoFiles.length === 0) {
-      alert('Please drop MP4, MOV, AVI, or WebM video files');
+    if (mediaFiles.length === 0) {
+      alert('Please drop video files (MP4, MOV, AVI, WebM) or audio files (MP3, WAV, OGG, AAC)');
       return;
     }
 
     // Process each file
-    for (const file of videoFiles) {
+    for (const file of mediaFiles) {
+      const ext = file.name.toLowerCase().split('.').pop();
+      const isAudio = ['mp3', 'wav', 'ogg', 'aac'].includes(ext);
+      const isVideo = ['mp4', 'mov', 'avi', 'webm'].includes(ext);
+      
       // Get file path - in Electron/desktop apps, file.path has full path
       // In browsers, we only have the filename
       // Check if we're in a desktop app context
       const isDesktopApp = window.electronAPI || window.__TAURI__ || window.require;
       const filePath = isDesktopApp && file.path ? file.path : file.name;
       
-      // Create video element to extract metadata
-      const video = document.createElement('video');
-      const url = URL.createObjectURL(file);
-      
-      video.preload = 'metadata';
-      video.src = url;
-      
-      video.onloadedmetadata = async () => {
-        const mediaItem = {
-          id: `imported-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          type: 'video',
-          filename: file.name,
-          path: filePath,
-          size: file.size,
-          duration: video.duration,
-          width: video.videoWidth,
-          height: video.videoHeight,
-          lastModified: file.lastModified,
-          file: file, // Store file object for potential future use
-          url: url // Store object URL for preview (will be revoked after metadata load)
+      if (isVideo) {
+        // Handle video files
+        const video = document.createElement('video');
+        const url = URL.createObjectURL(file);
+        
+        video.preload = 'metadata';
+        video.src = url;
+        
+        video.onloadedmetadata = async () => {
+          // Store original dimensions, but note target resolution is 1080x720
+          const mediaItem = {
+            id: `imported-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            type: 'video',
+            filename: file.name,
+            path: filePath,
+            size: file.size,
+            duration: video.duration,
+            width: video.videoWidth, // Original width
+            height: video.videoHeight, // Original height
+            targetWidth: 1080, // Target output width
+            targetHeight: 720, // Target output height
+            lastModified: file.lastModified,
+            file: file, // Store file object for potential future use
+            url: url // Store object URL for preview (will be revoked after metadata load)
+          };
+          
+          setImportedMedia(prev => [...prev, mediaItem]);
         };
         
-        setImportedMedia(prev => [...prev, mediaItem]);
-        // Note: URL.revokeObjectURL will be called after we're done with metadata
-        // We keep the file object so we can recreate the URL if needed
-      };
-      
-      video.onerror = () => {
-        console.error('Error loading video metadata:', file.name);
-        URL.revokeObjectURL(url);
-      };
-      
-      // Load metadata
-      video.load();
+        video.onerror = () => {
+          console.error('Error loading video metadata:', file.name);
+          URL.revokeObjectURL(url);
+        };
+        
+        // Load metadata
+        video.load();
+      } else if (isAudio) {
+        // Handle audio files
+        const audio = document.createElement('audio');
+        const url = URL.createObjectURL(file);
+        
+        audio.preload = 'metadata';
+        audio.src = url;
+        
+        audio.onloadedmetadata = async () => {
+          try {
+            // Generate waveform thumbnail from first 3 seconds
+            const waveformDataUrl = await generateAudioWaveform(file, 3, 1080, 720);
+            
+            const mediaItem = {
+              id: `imported-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+              type: 'audio',
+              filename: file.name,
+              path: filePath,
+              size: file.size,
+              duration: audio.duration,
+              width: 1080, // Waveform width
+              height: 720, // Waveform height
+              targetWidth: 1080, // Target output width
+              targetHeight: 720, // Target output height
+              lastModified: file.lastModified,
+              file: file, // Store file object for potential future use
+              url: url, // Store object URL for preview
+              waveformDataUrl: waveformDataUrl // Store waveform thumbnail
+            };
+            
+            setImportedMedia(prev => [...prev, mediaItem]);
+          } catch (error) {
+            console.error('Error generating waveform:', error);
+            // Fallback: create media item without waveform
+            const mediaItem = {
+              id: `imported-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+              type: 'audio',
+              filename: file.name,
+              path: filePath,
+              size: file.size,
+              duration: audio.duration,
+              width: 1080,
+              height: 720,
+              targetWidth: 1080,
+              targetHeight: 720,
+              lastModified: file.lastModified,
+              file: file,
+              url: url
+            };
+            setImportedMedia(prev => [...prev, mediaItem]);
+          }
+        };
+        
+        audio.onerror = () => {
+          console.error('Error loading audio metadata:', file.name);
+          URL.revokeObjectURL(url);
+        };
+        
+        // Load metadata
+        audio.load();
+      }
     }
   };
 
@@ -824,15 +894,24 @@ export default function ClipList({ onClipSelect, importedMedia: externalImported
         try {
           console.log(`🔄 Auto-restoring file: "${media.filename}"`);
           
+          // Determine file types based on media type
+          const isAudio = media.type === 'audio';
+          const fileTypes = isAudio ? [{
+            description: 'Audio Files',
+            accept: {
+              'audio/*': ['.mp3', '.wav', '.ogg', '.aac']
+            }
+          }] : [{
+            description: 'Video Files',
+            accept: {
+              'video/*': ['.mp4', '.mov', '.avi', '.webm']
+            }
+          }];
+          
           // Open file picker to restore this specific file (user gesture from click)
           const fileHandles = await window.showOpenFilePicker({
             suggestedName: media.filename,
-            types: [{ 
-              description: 'Video Files', 
-              accept: { 
-                'video/*': ['.mp4', '.mov', '.avi', '.webm'] 
-              } 
-            }],
+            types: fileTypes,
             excludeAcceptAllOption: false,
             multiple: false
           });
@@ -845,47 +924,126 @@ export default function ClipList({ onClipSelect, importedMedia: externalImported
             const sizeMatch = !media.size || Math.abs(file.size - media.size) < 1000;
             
             if (filenameMatch || sizeMatch) {
-              // Extract metadata and create object URL
-              const video = document.createElement('video');
               previewUrl = URL.createObjectURL(file);
-              video.preload = 'metadata';
-              video.src = previewUrl;
               
-              await new Promise((resolve, reject) => {
-                video.onloadedmetadata = () => {
-                  // Update the media item with restored file and actual metadata
-                  const updatedMedia = {
-                    ...media,
-                    file: file,
-                    url: previewUrl,
-                    duration: video.duration, // Use actual duration
-                    width: video.videoWidth,  // Use actual dimensions
-                    height: video.videoHeight,
-                    restored: false
+              if (isAudio) {
+                // Handle audio files
+                const audio = document.createElement('audio');
+                audio.preload = 'metadata';
+                audio.src = previewUrl;
+                
+                await new Promise((resolve, reject) => {
+                  audio.onloadedmetadata = async () => {
+                    try {
+                      // Generate waveform thumbnail
+                      const waveformDataUrl = await generateAudioWaveform(file, 3, 1080, 720);
+                      
+                      // Update the media item with restored file and actual metadata
+                      const updatedMedia = {
+                        ...media,
+                        file: file,
+                        url: previewUrl,
+                        duration: audio.duration,
+                        width: 1080,
+                        height: 720,
+                        targetWidth: 1080,
+                        targetHeight: 720,
+                        waveformDataUrl: waveformDataUrl,
+                        restored: false
+                      };
+                      
+                      setImportedMedia(prev => prev.map(m => 
+                        m.id === media.id ? updatedMedia : m
+                      ));
+                      
+                      console.log(`✅ Auto-restored audio file: "${file.name}"`);
+                      resolve();
+                    } catch (error) {
+                      console.error('Error generating waveform:', error);
+                      // Still update with file even if waveform generation fails
+                      const updatedMedia = {
+                        ...media,
+                        file: file,
+                        url: previewUrl,
+                        duration: audio.duration,
+                        width: 1080,
+                        height: 720,
+                        targetWidth: 1080,
+                        targetHeight: 720,
+                        waveformDataUrl: media.waveformDataUrl, // Use saved waveform if available
+                        restored: false
+                      };
+                      
+                      setImportedMedia(prev => prev.map(m => 
+                        m.id === media.id ? updatedMedia : m
+                      ));
+                      
+                      resolve();
+                    }
+                  };
+                  audio.onerror = () => {
+                    // Still use the file even if metadata extraction fails
+                    const updatedMedia = {
+                      ...media,
+                      file: file,
+                      url: previewUrl,
+                      waveformDataUrl: media.waveformDataUrl, // Preserve saved waveform
+                      restored: false
+                    };
+                    
+                    setImportedMedia(prev => prev.map(m => 
+                      m.id === media.id ? updatedMedia : m
+                    ));
+                    
+                    resolve();
                   };
                   
-                  setImportedMedia(prev => prev.map(m => 
-                    m.id === media.id ? updatedMedia : m
-                  ));
-                  
-                  console.log(`✅ Auto-restored file: "${file.name}"`);
-                  resolve();
-                };
-                video.onerror = () => {
-                  // Still use the file even if metadata extraction fails
-                  const updatedMedia = {
-                    ...media,
-                    file: file,
-                    url: previewUrl,
-                    restored: false
+                  audio.load();
+                });
+              } else {
+                // Handle video files
+                const video = document.createElement('video');
+                video.preload = 'metadata';
+                video.src = previewUrl;
+                
+                await new Promise((resolve, reject) => {
+                  video.onloadedmetadata = () => {
+                    // Update the media item with restored file and actual metadata
+                    const updatedMedia = {
+                      ...media,
+                      file: file,
+                      url: previewUrl,
+                      duration: video.duration, // Use actual duration
+                      width: video.videoWidth,  // Use actual dimensions
+                      height: video.videoHeight,
+                      targetWidth: 1080,
+                      targetHeight: 720,
+                      restored: false
+                    };
+                    
+                    setImportedMedia(prev => prev.map(m => 
+                      m.id === media.id ? updatedMedia : m
+                    ));
+                    
+                    console.log(`✅ Auto-restored file: "${file.name}"`);
+                    resolve();
                   };
-                  setImportedMedia(prev => prev.map(m => 
-                    m.id === media.id ? updatedMedia : m
-                  ));
-                  resolve();
-                };
-                video.load();
-              });
+                  video.onerror = () => {
+                    // Still use the file even if metadata extraction fails
+                    const updatedMedia = {
+                      ...media,
+                      file: file,
+                      url: previewUrl,
+                      restored: false
+                    };
+                    setImportedMedia(prev => prev.map(m => 
+                      m.id === media.id ? updatedMedia : m
+                    ));
+                    resolve();
+                  };
+                  video.load();
+                });
+              }
             } else {
               alert(`Selected file doesn't match "${media.filename}". Please select the correct file.`);
               return;
@@ -1403,7 +1561,7 @@ export default function ClipList({ onClipSelect, importedMedia: externalImported
                         position: "relative"
                       }}>
                         <video 
-                          src={`http://localhost:5000/api/video/${clip.character}/${clip.filename}`}
+                          src={apiEndpoints.video(clip.character, clip.filename)}
                           style={{ 
                             width: "100%", 
                             height: "100%", 
@@ -1566,7 +1724,7 @@ export default function ClipList({ onClipSelect, importedMedia: externalImported
                     {isDraggingOver ? "Drop files here" : "No imported media"}
                   </div>
                   <div style={{ fontSize: "14px", marginBottom: "16px" }}>
-                    Drag and drop MP4, MOV, AVI, or WebM files here
+                    Drag and drop video files (MP4, MOV, AVI, WebM) or audio files (MP3, WAV, OGG, AAC) here
                   </div>
                   <div style={{ fontSize: "12px", color: "#aaa" }}>
                     Or use File {'>'} Import Media...
@@ -1649,7 +1807,7 @@ export default function ClipList({ onClipSelect, importedMedia: externalImported
                         {/* Thumbnail */}
                         <div style={{
                           width: "100%",
-                          aspectRatio: "16/9",
+                          aspectRatio: TARGET_ASPECT_RATIO_CSS, // 1080x720 (1.5:1)
                           background: "#000",
                           borderRadius: "4px",
                           marginBottom: "8px",
@@ -1659,7 +1817,25 @@ export default function ClipList({ onClipSelect, importedMedia: externalImported
                           justifyContent: "center",
                           position: "relative"
                         }}>
-                          {thumbnailUrl ? (
+                          {media.type === 'audio' && media.waveformDataUrl ? (
+                            // Show waveform for audio files
+                            <img
+                              src={media.waveformDataUrl}
+                              alt="Audio waveform"
+                              style={{
+                                width: "100%",
+                                height: "100%",
+                                objectFit: "cover"
+                              }}
+                              onError={(e) => {
+                                e.target.style.display = "none";
+                                if (e.target.nextSibling) {
+                                  e.target.nextSibling.style.display = "flex";
+                                }
+                              }}
+                            />
+                          ) : media.type === 'video' && thumbnailUrl ? (
+                            // Show video thumbnail for video files
                             <video
                               src={thumbnailUrl}
                               style={{
@@ -1682,7 +1858,7 @@ export default function ClipList({ onClipSelect, importedMedia: externalImported
                             />
                           ) : null}
                           <div style={{ 
-                            display: thumbnailUrl ? "none" : "flex", 
+                            display: (media.type === 'audio' && media.waveformDataUrl) || (media.type === 'video' && thumbnailUrl) ? "none" : "flex", 
                             width: "100%", 
                             height: "100%", 
                             alignItems: "center", 
@@ -1690,9 +1866,9 @@ export default function ClipList({ onClipSelect, importedMedia: externalImported
                             fontSize: "20px",
                             color: "#fff"
                           }}>
-                            🎬
-        </div>
-      </div>
+                            {media.type === 'audio' ? '🎵' : '🎬'}
+                          </div>
+                        </div>
       
                         {/* Filename */}
                         <div style={{ 
@@ -1714,9 +1890,12 @@ export default function ClipList({ onClipSelect, importedMedia: externalImported
                           Duration: {media.duration ? `${media.duration.toFixed(2)}s` : 'Unknown'}
                         </div>
                         
-                        {/* Resolution */}
+                        {/* Resolution / Audio info */}
                         <div style={{ fontSize: "11px", color: "#888", marginBottom: "4px" }}>
-                          {media.width && media.height ? `${media.width}x${media.height}` : 'Unknown resolution'}
+                          {media.type === 'video' 
+                            ? (media.width && media.height ? `${media.width}x${media.height}` : 'Unknown resolution')
+                            : (media.type === 'audio' ? 'Audio file' : 'Unknown type')
+                          }
                         </div>
                         
                         {/* File size */}

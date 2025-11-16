@@ -77,11 +77,9 @@ function App() {
 
   const tabs = [
     { id: 'editor', label: 'Editor', component: EditorLayout },
-    { id: 'script', label: 'Script Input', component: () => <div>Script Input - Coming Soon</div> },
-    { id: 'export', label: 'Export', component: () => <div>Export - Coming Soon</div> }
+    { id: 'script', label: 'Script Input', component: () => <div style={{ padding: '20px' }}>Script Input - Coming Soon</div> },
+    { id: 'export', label: 'Export', component: () => <div style={{ padding: '20px' }}>Export - Coming Soon</div> }
   ];
-
-  const ActiveComponent = tabs.find(tab => tab.id === activeTab)?.component || EditorLayout;
 
   return (
     <div style={{ 
@@ -293,9 +291,29 @@ function App() {
         overflow: 'hidden',
         background: 'white',
         borderTop: '1px solid #ddd',
-        boxShadow: '0 -2px 8px rgba(0,0,0,0.05)'
+        boxShadow: '0 -2px 8px rgba(0,0,0,0.05)',
+        position: 'relative'
       }}>
-        <ActiveComponent />
+        {tabs.map(tab => {
+          const TabComponent = tab.component;
+          return (
+            <div
+              key={tab.id}
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                display: activeTab === tab.id ? 'flex' : 'none',
+                flexDirection: 'column',
+                overflow: 'hidden'
+              }}
+            >
+              <TabComponent />
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -449,7 +467,9 @@ function EditorLayout() {
             duration: media.duration,
             width: media.width,
             height: media.height,
-            lastModified: media.lastModified
+            lastModified: media.lastModified,
+            // Save waveform thumbnail for audio files (base64 data URL is serializable)
+            ...(media.type === 'audio' && media.waveformDataUrl ? { waveformDataUrl: media.waveformDataUrl } : {})
             // File objects and object URLs cannot be serialized, but we save the path
             // On restore, we'll attempt to access the file using the saved path
           };
@@ -487,51 +507,129 @@ function EditorLayout() {
               // Read file via Electron API
               const fileData = await window.electronAPI.readFile(filePath);
               
+              // Determine MIME type based on file extension and media type
+              const ext = media.filename.toLowerCase().split('.').pop();
+              let mimeType = 'video/mp4'; // Default
+              if (media.type === 'audio') {
+                if (ext === 'mp3') mimeType = 'audio/mpeg';
+                else if (ext === 'wav') mimeType = 'audio/wav';
+                else if (ext === 'ogg') mimeType = 'audio/ogg';
+                else if (ext === 'aac') mimeType = 'audio/aac';
+                else mimeType = 'audio/mpeg';
+              } else {
+                if (ext === 'mp4') mimeType = 'video/mp4';
+                else if (ext === 'mov') mimeType = 'video/quicktime';
+                else if (ext === 'avi') mimeType = 'video/x-msvideo';
+                else if (ext === 'webm') mimeType = 'video/webm';
+              }
+              
               // Create File object from buffer
               const file = new File([fileData], media.filename, {
-                type: 'video/mp4',
+                type: mimeType,
                 lastModified: media.lastModified || Date.now()
               });
               
               // Create object URL and extract metadata
               const url = URL.createObjectURL(file);
               
-              return new Promise((resolve) => {
+              const mediaType = media.type || 'video';
+              
+              if (mediaType === 'audio') {
+                // Handle audio files
+                const audio = document.createElement('audio');
+                audio.preload = 'metadata';
+                audio.src = url;
+                
+                return new Promise((resolve) => {
+                  audio.onloadedmetadata = async () => {
+                    console.log(`✅ Restored audio file: ${media.filename}`);
+                    
+                    // Use saved waveform if available, otherwise generate new one
+                    let waveformDataUrl = media.waveformDataUrl;
+                    if (!waveformDataUrl) {
+                      try {
+                        // Import generateAudioWaveform dynamically to avoid issues
+                        const { generateAudioWaveform } = await import('./utils/audioWaveform');
+                        waveformDataUrl = await generateAudioWaveform(file, 3, 1080, 720);
+                      } catch (error) {
+                        console.warn(`⚠️ Could not generate waveform for ${media.filename}:`, error);
+                      }
+                    }
+                    
+                    resolve({
+                      id: media.id,
+                      type: 'audio',
+                      filename: media.filename,
+                      path: filePath,
+                      size: file.size,
+                      duration: audio.duration,
+                      width: 1080,
+                      height: 720,
+                      targetWidth: 1080,
+                      targetHeight: 720,
+                      lastModified: file.lastModified,
+                      file: file,
+                      url: url,
+                      waveformDataUrl: waveformDataUrl,
+                      restored: false
+                    });
+                  };
+                  
+                  audio.onerror = () => {
+                    console.error(`❌ Error loading metadata for: ${media.filename}`);
+                    resolve({
+                      ...media,
+                      file: file,
+                      url: url,
+                      waveformDataUrl: media.waveformDataUrl, // Preserve saved waveform if available
+                      restored: false,
+                      restoreError: 'Failed to load audio metadata'
+                    });
+                  };
+                  
+                  audio.load();
+                });
+              } else {
+                // Handle video files
                 const video = document.createElement('video');
                 video.preload = 'metadata';
                 video.src = url;
                 
-                video.onloadedmetadata = () => {
-                  console.log(`✅ Restored file: ${media.filename}`);
-                  resolve({
-                    id: media.id,
-                    type: media.type || 'video',
-                    filename: media.filename,
-                    path: filePath,
-                    size: file.size,
-                    duration: video.duration,
-                    width: video.videoWidth,
-                    height: video.videoHeight,
-                    lastModified: file.lastModified,
-                    file: file,
-                    url: url,
-                    restored: false
-                  });
-                };
-                
-                video.onerror = () => {
-                  console.error(`❌ Error loading metadata for: ${media.filename}`);
-                  resolve({
-                    ...media,
-                    file: file,
-                    url: url,
-                    restored: false,
-                    restoreError: 'Failed to load video metadata'
-                  });
-                };
-                
-                video.load();
-              });
+                return new Promise((resolve) => {
+                  video.onloadedmetadata = () => {
+                    console.log(`✅ Restored file: ${media.filename}`);
+                    resolve({
+                      id: media.id,
+                      type: media.type || 'video',
+                      filename: media.filename,
+                      path: filePath,
+                      size: file.size,
+                      duration: video.duration,
+                      width: video.videoWidth,
+                      height: video.videoHeight,
+                      targetWidth: 1080,
+                      targetHeight: 720,
+                      lastModified: file.lastModified,
+                      file: file,
+                      url: url,
+                      restored: false
+                    });
+                  };
+                  
+                  video.onerror = () => {
+                    console.error(`❌ Error loading metadata for: ${media.filename}`);
+                    resolve({
+                      ...media,
+                      file: file,
+                      url: url,
+                      restored: false,
+                      restoreError: 'Failed to load video metadata'
+                    });
+                  };
+                  
+                  video.load();
+                });
+              }
             } catch (e) {
               console.error(`❌ Error restoring file ${media.filename}:`, e);
               return {
@@ -551,12 +649,14 @@ function EditorLayout() {
           return restoredMedia; // Return for linking to clips
         } catch (e) {
           console.error('❌ Desktop file restoration error:', e);
-          // Fall back to metadata-only
+          // Fall back to metadata-only (preserve waveformDataUrl if available)
           setImportedMedia(mediaList.map(media => ({
             ...media,
             file: null,
             url: null,
-            restored: true
+            restored: true,
+            // Preserve waveformDataUrl for audio files even when file can't be restored
+            ...(media.type === 'audio' && media.waveformDataUrl ? { waveformDataUrl: media.waveformDataUrl } : {})
           })));
         }
       } else {
@@ -566,7 +666,9 @@ function EditorLayout() {
           ...media,
           file: null,
           url: null,
-          restored: true
+          restored: true,
+          // Preserve waveformDataUrl for audio files even when file can't be restored
+          ...(media.type === 'audio' && media.waveformDataUrl ? { waveformDataUrl: media.waveformDataUrl } : {})
         })));
       }
     };

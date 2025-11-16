@@ -6,6 +6,10 @@ const { exec, spawn } = require('child_process');
 const { promisify } = require('util');
 const execAsync = promisify(exec);
 
+// Target output resolution
+const TARGET_WIDTH = 1080;
+const TARGET_HEIGHT = 720;
+
 // Frame cache to store recently extracted frames
 const frameCache = new Map();
 const CACHE_SIZE_LIMIT = 50; // Reduced cache size to save memory
@@ -255,16 +259,16 @@ async function extractPreviewFrame(videoPath, frameNumber, frameRate, isUrgent =
       isUrgent
     });
     
-    // Balanced FFmpeg args for reliable and fast extraction
+    // Scale to target resolution (1080x720) while maintaining aspect ratio
     const ffmpegArgs = [
       '-hwaccel', 'auto', // Enable hardware acceleration
       '-ss', timePosition.toString(),
       '-i', videoPath,
+      '-vf', `scale=${TARGET_WIDTH}:${TARGET_HEIGHT}:force_original_aspect_ratio=decrease,pad=${TARGET_WIDTH}:${TARGET_HEIGHT}:(ow-iw)/2:(oh-ih)/2:black`,
       '-vframes', '1',
       '-f', 'image2pipe',
       '-vcodec', 'mjpeg', // JPEG is faster than PNG
       '-q:v', '3', // Balanced quality (not too low)
-      '-s', '640x360', // Reasonable size (not too small)
       '-threads', '2', // Allow 2 threads for better performance
       '-preset', 'ultrafast', // Fastest encoding preset
       '-tune', 'fastdecode', // Optimize for fast decoding
@@ -918,10 +922,13 @@ const streamFrameDirect = async (req, res) => {
     // Calculate time position for direct seeking (much faster than select filter)
     const timePosition = validatedFrameNumber / videoFrameRate;
     
+    // Scale frame to target resolution (1080x720) while maintaining aspect ratio
+    // Pad with black bars if needed to fit exact dimensions
     const ffmpegArgs = [
       '-hwaccel', 'auto', // Enable hardware acceleration
       '-ss', timePosition.toString(),  // Seek directly to time position
       '-i', videoPath,
+      '-vf', `scale=${TARGET_WIDTH}:${TARGET_HEIGHT}:force_original_aspect_ratio=decrease,pad=${TARGET_WIDTH}:${TARGET_HEIGHT}:(ow-iw)/2:(oh-ih)/2:black`,
       '-vframes', '1',  // Extract just 1 frame
       '-f', 'image2pipe',
       '-vcodec', 'png',

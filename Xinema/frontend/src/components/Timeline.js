@@ -89,6 +89,103 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
     return staticClipData.get(key) || null;
   };
 
+  // Helper function to determine if a clip is audio type
+  const isAudioClip = (clip) => {
+    if (!clip) return false;
+    // Check if it's imported audio media
+    if (clip.importedMedia && clip.importedMedia.type === 'audio') return true;
+    if (clip.type === 'audio') return true;
+    // Arcane clips are always video
+    return false;
+  };
+
+  // Helper function to determine if a clip is video type
+  const isVideoClip = (clip) => {
+    if (!clip) return false;
+    // If it's explicitly audio, it's not video
+    if (isAudioClip(clip)) return false;
+    // Imported media with type 'video' or Arcane clips are video
+    if (clip.importedMedia && clip.importedMedia.type === 'video') return true;
+    if (clip.type === 'video') return true;
+    // Arcane clips (no type specified) are video by default
+    return true;
+  };
+
+  // Helper function to get appropriate track based on clip type and cursor position
+  // Implements chiral logic for video: locks to upmost/bottommost track when cursor is out of range
+  const getTargetTrack = (clip, mouseY, timelineRect, trackContentStart = 76) => {
+    if (!clip || !timelineRect) return 1; // Default fallback
+
+    const isAudio = isAudioClip(clip);
+    const isVideo = isVideoClip(clip);
+
+    // Audio clips can only go to audio tracks
+    if (isAudio) {
+      // Calculate relative Y position from timeline top
+      const relativeY = mouseY - timelineRect.top;
+      const trackStartY = 60; // Time ruler height
+      const videoTrackHeight = 50; // Height of each video track
+      const videoTracksCount = videoTracks.length;
+      const videoTracksTotalHeight = videoTracksCount * videoTrackHeight;
+      const audioTrackStartY = trackStartY + videoTracksTotalHeight;
+      
+      // Find which audio track the cursor is over
+      const audioTrackIndex = Math.floor((relativeY - audioTrackStartY) / videoTrackHeight);
+      
+      // Clamp to valid audio track range
+      if (relativeY >= audioTrackStartY && relativeY < audioTrackStartY + (audioTracks.length * videoTrackHeight)) {
+        // Cursor is within audio tracks area
+        const targetAudioTrack = Math.max(1, Math.min(audioTrackIndex + 1, audioTracks.length));
+        return audioTracks[targetAudioTrack - 1]; // Return actual track number
+      } else if (relativeY < audioTrackStartY) {
+        // Cursor is above audio tracks - default to first audio track
+        return audioTracks[0];
+      } else {
+        // Cursor is below audio tracks - default to last audio track
+        return audioTracks[audioTracks.length - 1];
+      }
+    }
+
+    // Video clips can only go to video tracks
+    if (isVideo) {
+      const relativeY = mouseY - timelineRect.top;
+      const trackStartY = 60; // Time ruler height
+      const trackHeight = 50; // Height of each track
+      
+      // Calculate track index based on Y position
+      const trackIndex = Math.floor((relativeY - trackStartY) / trackHeight);
+      
+      // Check if cursor is within video tracks range
+      const videoTracksCount = videoTracks.length;
+      const videoTracksTotalHeight = videoTracksCount * trackHeight;
+      const videoTracksStartY = trackStartY;
+      const videoTracksEndY = videoTracksStartY + videoTracksTotalHeight;
+      
+      if (relativeY >= videoTracksStartY && relativeY < videoTracksEndY) {
+        // Cursor is within video tracks area - use normal track assignment
+        const targetVideoTrack = Math.max(1, Math.min(trackIndex + 1, videoTracksCount));
+        // Video tracks are numbered 1, 2, 3 (from bottom to top in display, but reversed in array)
+        // We need to map the index to the actual track number
+        const reversedTracks = [...videoTracks].reverse(); // Top to bottom: [3, 2, 1]
+        return reversedTracks[targetVideoTrack - 1] || videoTracks[0];
+      } else {
+        // Cursor is out of video tracks range - apply chiral logic
+        // If cursor is above video tracks, lock to upmost (highest) track
+        // If cursor is below video tracks, lock to bottommost (lowest) track
+        if (relativeY < videoTracksStartY) {
+          // Above timeline - lock to upmost track (highest number)
+          return Math.max(...videoTracks);
+        } else {
+          // Below video tracks - lock to bottommost track (lowest number)
+          return Math.min(...videoTracks);
+        }
+      }
+    }
+
+    // Default fallback (shouldn't happen, but just in case)
+    return videoTracks[0];
+  };
+
   // Listen for static clip data initialization from project load
   useEffect(() => {
     const handleInitializeStaticData = (event) => {
@@ -465,18 +562,16 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
         const trackContentStart = 76;
         const relativeX = mouseX - trackContentStart;
         
-        // Calculate which track the mouse is over
-        let targetTrack = 3; // Default to track 3 (highest)
-        if (mouseY >= 100 && mouseY < 150) {
-          targetTrack = 3; // Top track
-        } else if (mouseY >= 150 && mouseY < 200) {
-          targetTrack = 2; // Middle track
-        } else if (mouseY >= 200 && mouseY < 250) {
-          targetTrack = 1; // Bottom track
-        } else if (mouseY < 100) {
-          targetTrack = 3; // Above timeline area
+        // Calculate which track the mouse is over using clip type-aware logic
+        // For existing timeline clips, use the clip from dragPreview
+        const clip = dragPreview ? timelineClips.find(c => c.id === dragPreview.id) : null;
+        let targetTrack = dragPreview ? dragPreview.track : 1; // Default to current track or track 1
+        if (clip) {
+          // Use getTargetTrack to ensure clip stays on correct track type
+          targetTrack = getTargetTrack(clip, e.clientY, timelineRect);
         } else {
-          targetTrack = 1; // Below timeline area
+          // Fallback for new clips
+          targetTrack = getTargetTrack(dragPreview, e.clientY, timelineRect);
         }
         
         if (relativeX >= 0 && mouseY >= 60) {
@@ -2563,8 +2658,22 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
         
         // Allow dropping even if to the left of timeline content (will be constrained to left border)
         if (relativeX >= -1000) { // Allow dropping anywhere within reasonable bounds
-          // Use track from drop event, fallback to drag preview, then default to track 1
-          const targetTrack = track || (dragPreview ? dragPreview.track : 1);
+          // Use track from drop event, or calculate based on clip type and cursor position
+          let targetTrack = track;
+          if (!targetTrack) {
+            // Calculate target track based on clip type and cursor position
+            targetTrack = getTargetTrack(clip, clientY, timelineRect);
+          }
+          // Validate that the track matches the clip type
+          const isAudio = isAudioClip(clip);
+          const isVideo = isVideoClip(clip);
+          if (isAudio && !audioTracks.includes(targetTrack)) {
+            // Force audio clips to first audio track if invalid track was provided
+            targetTrack = audioTracks[0];
+          } else if (isVideo && !videoTracks.includes(targetTrack)) {
+            // Force video clips to first video track if invalid track was provided
+            targetTrack = videoTracks[0];
+          }
           
           // Check if this is a timeline clip being moved (not a new clip from ClipList)
           const isTimelineClip = clip.id && timelineClips.some(timelineClip => timelineClip.id === clip.id);
@@ -2850,21 +2959,9 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
               }
             }
             
-            // Calculate which track the mouse is over
-            // Simple track assignment based on Y position
-            let targetTrack = 3; // Default to track 3 (highest) when dragging above timeline
-            
-            if (mouseY >= 100 && mouseY < 150) {
-              targetTrack = 3; // Top track (100-150px from timeline top)
-            } else if (mouseY >= 150 && mouseY < 200) {
-              targetTrack = 2; // Middle track (150-200px from timeline top)
-            } else if (mouseY >= 200 && mouseY < 250) {
-              targetTrack = 1; // Bottom track (200-250px from timeline top)
-            } else if (mouseY < 100) {
-              targetTrack = 3; // Above timeline area - default to highest track
-            } else {
-              targetTrack = 1; // Below timeline area - default to lowest track
-            }
+            // Calculate which track the mouse is over using clip type-aware logic
+            // Pass e.clientY (absolute) not mouseY (relative)
+            const targetTrack = getTargetTrack(clipData, e.clientY, timelineRect);
             
             // Apply magnetism to snap to nearby elements (all in frames)
             // Handle both numeric duration (from ClipList) and MM:SS format
@@ -2956,11 +3053,9 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
                 }
               }
               
-              // Calculate which track the mouse is over
-              const trackHeight = 50;
-              const trackStartY = 60;
-              const trackIndex = Math.floor((mouseY - trackStartY) / trackHeight);
-              const targetTrack = Math.max(1, Math.min(trackIndex + 1, 3));
+              // Calculate which track the mouse is over using clip type-aware logic
+              // Pass e.clientY (absolute) not mouseY (relative)
+              const targetTrack = getTargetTrack(customDragEvent.clip, e.clientY, timelineRect);
               
               // Apply magnetism to snap to nearby elements (all in frames)
               // Handle both numeric duration (from ClipList) and MM:SS format
@@ -3081,20 +3176,11 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
           const trackStartY = 60;
           const relativeY = mouseY - trackStartY;
           
-          // Find which track the mouse is closest to
-          let targetTrack = 3; // Default to track 3 (highest) when dragging above timeline
-          
-          if (mouseY >= 100 && mouseY < 150) {
-            targetTrack = 3; // Top track (100-150px from timeline top)
-          } else if (mouseY >= 150 && mouseY < 200) {
-            targetTrack = 2; // Middle track (150-200px from timeline top)
-          } else if (mouseY >= 200 && mouseY < 250) {
-            targetTrack = 1; // Bottom track (200-250px from timeline top)
-          } else if (mouseY < 100) {
-            targetTrack = 3; // Above timeline area - default to highest track
-          } else {
-            targetTrack = 1; // Below timeline area - default to lowest track
-          }
+          // Find which track the mouse is closest to using clip type-aware logic
+          // Get the clip being dragged (from event detail or drag preview)
+          const draggedClip = clip || (dragPreview ? timelineClips.find(c => c.id === dragPreview.id) : null);
+          // Pass clientY (absolute) not mouseY (relative)
+          const targetTrack = getTargetTrack(draggedClip, clientY, timelineRect);
           
           
           // Check if Ctrl key is pressed for multi-track placement
@@ -3242,18 +3328,10 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
           if (mouseX >= timelineRect.left && mouseX <= timelineRect.right &&
               mouseY >= timelineRect.top && mouseY <= timelineRect.bottom) {
             
-            // Calculate track based on mouse position (same as ClipList)
-            const relativeY = mouseY - timelineRect.top;
-            let targetTrack = 3; // Default to track 3 (highest)
-            
-            // Use the same track boundaries as ClipList
-            if (relativeY >= 100 && relativeY < 150) {
-              targetTrack = 3; // Top track
-            } else if (relativeY >= 150 && relativeY < 200) {
-              targetTrack = 2; // Middle track
-            } else if (relativeY >= 200 && relativeY < 250) {
-              targetTrack = 1; // Bottom track
-            }
+            // Calculate track based on mouse position using clip type-aware logic
+            // Get the clip being dragged from dragPreview
+            const draggedClip = dragPreview ? timelineClips.find(c => c.id === dragPreview.id) : dragPreview;
+            const targetTrack = getTargetTrack(draggedClip, mouseY, timelineRect);
             
             // Create a synthetic drop event (same as ClipList)
             const dropEvent = new CustomEvent('timelineDrop', {

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import PropTypes from 'prop-types';
+import { TARGET_WIDTH, TARGET_HEIGHT, TARGET_ASPECT_RATIO_CSS } from '../utils/constants';
 
 // INSTANT PREVIEW HACK - Uses actual MP4 video instead of individual frames
 // Timeline controls video currentTime for instant scrubbing
@@ -488,22 +489,7 @@ const TimelinePreview = ({
       background: '#000'
     }}>
       {/* Header */}
-      <div style={{
-        padding: '16px',
-        borderBottom: '1px solid #333',
-        background: '#111'
-      }}>
-        <h3 style={{
-          margin: 0,
-          fontSize: '16px',
-          fontWeight: '600',
-          color: '#fff'
-        }}>
-          🚀 INSTANT Preview (MP4 Hack)
-        </h3>
-      </div>
-
-      {/* 16:9 Preview Screen */}
+      {/* Preview Screen */}
       <div style={{
         flex: 1,
         display: 'flex',
@@ -514,7 +500,7 @@ const TimelinePreview = ({
       }}>
         <div style={{
           width: '100%',
-          aspectRatio: '16/9',
+          aspectRatio: TARGET_ASPECT_RATIO_CSS, // 1080x720 (1.5:1)
           background: '#000',
           borderRadius: '8px',
           border: '2px solid #333',
@@ -542,7 +528,7 @@ const TimelinePreview = ({
               style={{
                 width: '100%',
                 height: '100%',
-                objectFit: 'cover'
+                objectFit: 'contain' // Changed from 'cover' to 'contain' to fit within 1080x720
               }}
                  muted
                  preload="auto"

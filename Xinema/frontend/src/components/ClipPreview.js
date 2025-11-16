@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { TARGET_WIDTH, TARGET_HEIGHT, TARGET_ASPECT_RATIO_CSS } from '../utils/constants';
 
 export default function ClipPreview({ clip }) {
   // Debug logging
@@ -73,23 +74,24 @@ export default function ClipPreview({ clip }) {
         fontSize: "16px",
         position: "relative",
         overflow: "hidden",
-        minHeight: "200px"
+        minHeight: "200px",
+        aspectRatio: TARGET_ASPECT_RATIO_CSS // 1080x720
       }}>
         {videoPath ? (
-          <video
-            src={videoPath}
-            style={{
-              width: "100%",
-              height: "100%",
-              objectFit: "contain"
-            }}
-            controls
-            autoPlay
-            preload="metadata"
-            onLoadedMetadata={handleVideoLoad}
-            onError={handleVideoError}
-            onCanPlay={handleVideoCanPlay}
-          />
+        <video
+          src={videoPath}
+          style={{
+            width: "100%",
+            height: "100%",
+              objectFit: "contain" // Fit within 1080x720 container
+          }}
+          controls
+          autoPlay
+          preload="metadata"
+          onLoadedMetadata={handleVideoLoad}
+          onError={handleVideoError}
+          onCanPlay={handleVideoCanPlay}
+        />
         ) : clip.type === 'imported' ? (
           <div style={{ 
             textAlign: "center", 
