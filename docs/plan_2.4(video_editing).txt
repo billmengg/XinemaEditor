@@ -1,0 +1,582 @@
+# Plan 2.4: Video Editing Features
+
+## 📋 **Overview**
+The Video Editing Features provide professional-grade editing tools for clip manipulation, timeline enhancement, and user interface controls. This includes core editing operations like trimming, cutting, merging, and speed adjustment, along with advanced timeline tools and professional editing capabilities.
+
+---
+
+## ✅ **COMPLETED FEATURES**
+
+### **Core Implementation**
+- ✅ **Track Priority Logic** - Highest track clips display when overlapping
+- ✅ **Frame-Accurate Editing** - 60fps precision for all editing operations
+- ✅ **Timeline Integration** - Seamless integration with existing timeline system
+- ✅ **Event-Driven Architecture** - Clean communication between editing components
+
+### **Technical Features**
+- ✅ **Multi-Track Support** - 3 video tracks with proper layering
+- ✅ **Magnetic Snapping** - Professional-grade clip alignment
+- ✅ **Timeline Boundaries** - Proper clip positioning constraints
+- ✅ **Performance Optimization** - Efficient editing operations
+
+### **User Interface**
+- ✅ **Professional Interface** - Industry-standard video editing UI
+- ✅ **Visual Feedback** - Clear indicators for all editing operations
+- ✅ **Responsive Design** - Smooth interactions during editing
+- ✅ **Consistent Styling** - Unified design language across components
+
+---
+
+## 🎯 **MVP FEATURES (V0)**
+
+### **1. Core Video Editing Operations**
+- [x] **Clip Trimming & Cropping**
+  - [x] Visual trim handles on clip edges
+  - [x] Drag to adjust start/end points
+  - [x] Frame-accurate trimming (60fps precision)
+  - [x] Real-time preview during trimming
+
+- [x] **Clip Drag & Duplication**
+  - [x] Drag clips to reposition
+  - [x] Duplicate clips with Ctrl+Drag
+  - [x] Multi-track clip placement
+  - [x] Magnetic snapping during drag
+
+### **2. Timeline Enhancements**
+- [ ] **Visual Editing Tools**
+  - [x] Resizable clip edges
+  - [x] Visual feedback during trimming
+  
+
+- [x] **Edit History Management**
+  - [x] Undo last edit operation (Ctrl+Z)
+  - [x] Redo undone operation (Ctrl+Y)
+  - [x] Edit history stack
+  - [x] Track all edit types
+  
+
+- [x] **Clip Properties Panel**
+  - [x] Start time (frames/seconds)
+  - [x] End time (frames/seconds)
+  - [x] Duration display
+  - [x] Speed multiplier
+  - [x] Track assignment
+  - [x] Source file path
+  - [x] Character assignment
+  - [x] Custom metadata
+
+### **3. File Import & Media Management**
+- [ ] **File Import System**
+  - [ ] Import images (PNG, JPG, JPEG, GIF, WebP)
+  - [ ] Import videos (MP4, MOV, AVI, WebM)
+  - [ ] Import audio (MP3, WAV, AAC, OGG)
+  - [ ] File picker dialog (File > Import Media)
+  - [ ] Drag-and-drop file import
+  - [ ] Multi-file selection support
+  - [ ] File validation and error handling
+  - [ ] Progress indicator for large files
+
+- [ ] **Media Processing**
+  - [ ] Extract video metadata (duration, resolution, fps)
+  - [ ] Extract audio metadata (duration, sample rate, channels)
+  - [ ] Extract image metadata (dimensions, format)
+  - [ ] Generate thumbnails for imported media
+  - [ ] Store imported files in project structure
+  - [ ] Reference management (local file paths)
+
+- [ ] **Timeline Integration**
+  - [ ] Add imported media to "Imported Media" tab
+  - [ ] Drag imported media to timeline
+  - [ ] Preview imported media in timeline
+  - [ ] Support for multiple media types on timeline
+  - [ ] Track assignment for different media types
+  - [ ] Image duration handling (stretch to fit or hold)
+
+### **4. Video Export & Rendering**
+- [ ] **Export System**
+  - [ ] Export timeline to MP4 video
+  - [ ] Render all clips in sequence
+  - [ ] Apply all edits (trims, crops, positions)
+  - [ ] Render all tracks with proper layering
+  - [ ] Export dialog with settings
+  - [ ] Progress tracking during render
+
+- [ ] **Export Settings**
+  - [ ] Resolution selection (1080p, 720p, custom)
+  - [ ] Frame rate (24fps, 30fps, 60fps)
+  - [ ] Video codec (H.264, H.265)
+  - [ ] Bitrate controls
+  - [ ] Output file location selection
+  - [ ] Filename input
+
+- [ ] **Rendering Engine**
+  - [ ] Backend rendering service
+  - [ ] FFmpeg integration for video processing
+  - [ ] Frame-by-frame composition
+  - [ ] Multi-track compositing
+  - [ ] Crop/trim application during render
+  - [ ] Audio track mixing
+  - [ ] Image stretching/positioning
+
+- [ ] **Export Preview & Validation**
+  - [ ] Preview export settings
+  - [ ] Estimated file size
+  - [ ] Estimated render time
+  - [ ] Validate timeline before export
+  - [ ] Error handling for missing media
+  - [ ] Export completion notification
+
+---
+
+## ⚡ **V0.5 FEATURES**
+
+### **Timeline Zoom & Navigation**
+- 0.5x to 4x zoom levels
+- Mouse wheel zoom
+- Zoom to fit selection
+- Zoom slider in timeline
+- Pan timeline (middle mouse drag)
+- Zoom to playhead
+
+### **Editing Toolbar**
+- Select tool (default)
+- Split tool
+- Trim tool
+- Tool icons and labels
+- Keyboard shortcuts for tools
+- Cut, copy, paste, delete actions
+
+### **Context Menus**
+- Clip right-click menu
+- Split at playhead
+- Trim to playhead
+- Delete clip
+- Copy clip
+- Clip properties
+- Speed adjustment
+
+### **Keyboard Shortcuts**
+- Space: Play/Pause
+- I: Set in point
+- O: Set out point
+- S: Split tool
+- V: Select tool
+- Home/End: Go to start/end
+- Arrow keys: Frame step
+
+### **Visual Editing Tools (remaining)**
+- Snap to frame boundaries
+- Split tool cursor when active
+- Click to split at position
+- Visual split line indicator
+
+### **Edit History polish**
+- Clear history on project save
+- Visual undo/redo indicators
+
+---
+
+## 🚀 **FUTURE ADVANCED FEATURES (V1+)**
+
+### **Professional Editing Tools**
+- [ ] **Clip Cutting & Splitting**
+  - [ ] Split clip at playhead position
+  - [ ] Split tool cursor/icon
+  - [ ] Keyboard shortcut (Ctrl+S or S key)
+  - [ ] Maintain clip properties after split
+  - [ ] Multiple splits on single clip
+  - [ ] Independent trimming of split segments
+
+- [ ] **Clip Merging & Combining**
+  - [ ] Merge clips on same track
+  - [ ] Visual merge indicator
+  - [ ] Preserve all clip properties
+  - [ ] Undo merge operation
+  - [ ] Combine non-adjacent clips
+  - [ ] Maintain chronological order
+
+- [ ] **Speed Adjustment**
+  - [ ] 0.25x to 4x speed range
+  - [ ] Speed slider in clip properties
+  - [ ] Real-time preview of speed changes
+  - [ ] Maintain audio sync (basic)
+  - [ ] Speed presets (0.5x, 1x, 2x)
+  - [ ] Custom speed input
+
+- [ ] **Advanced Trimming**
+  - [ ] Ripple trim left/right
+  - [ ] Automatic gap closing
+  - [ ] Timeline auto-adjustment
+  - [ ] Roll edit between clips
+  - [ ] Slip edit for content adjustment
+
+- [ ] **Advanced Splitting**
+  - [ ] Multi-split tool
+  - [ ] Batch split operations
+  - [ ] Pattern-based splitting
+  - [ ] Auto-detect scene changes
+  - [ ] AI-assisted splitting
+
+- [ ] **Advanced Speed Control**
+  - [ ] Speed ramping
+  - [ ] Custom speed curves
+  - [ ] Bezier curve editing
+  - [ ] Keyframe-based speed
+  - [ ] Reverse playback
+
+### **Professional Timeline Features**
+- [ ] **Multi-Track Editing**
+  - [ ] Multiple video layers
+  - [ ] Track opacity controls
+  - [ ] Blend modes
+  - [ ] Track locking
+  - [ ] Separate audio editing
+  - [ ] Audio waveform display
+
+- [ ] **Advanced Timeline Tools**
+  - [ ] Timeline markers
+  - [ ] Comment annotations
+  - [ ] Chapter markers
+  - [ ] Crossfade transitions
+  - [ ] Wipe transitions
+  - [ ] Custom transition effects
+
+### **Professional Effects & Correction**
+- [ ] **Color Correction**
+  - [ ] Brightness/Contrast
+  - [ ] Saturation adjustment
+  - [ ] Color temperature
+  - [ ] Color wheels
+  - [ ] Curves adjustment
+  - [ ] HSL controls
+
+- [ ] **Visual Effects**
+  - [ ] Scale/Position
+  - [ ] Rotation
+  - [ ] Crop/Mask
+  - [ ] Keyframe animation
+  - [ ] Blur/Sharpen
+  - [ ] Glow effects
+
+### **Advanced Export & Rendering**
+- [ ] **Export Options**
+  - [ ] MP4 (H.264/H.265)
+  - [ ] MOV (ProRes)
+  - [ ] AVI (uncompressed)
+  - [ ] Resolution presets
+  - [ ] Bitrate controls
+  - [ ] Frame rate options
+
+- [ ] **Batch Processing**
+  - [ ] Batch export
+  - [ ] Template application
+  - [ ] Queue management
+  - [ ] Progress tracking
+
+---
+
+## 🔧 **TECHNICAL IMPLEMENTATION**
+
+### **Architecture**
+```
+VideoEditing
+├── EditingTools
+│   ├── TrimTool
+│   ├── SplitTool
+│   ├── MergeTool
+│   └── SpeedTool
+├── TimelineEnhancements
+│   ├── TrimHandles
+│   ├── EditHistory
+│   ├── PropertiesPanel
+│   └── ZoomControls
+├── ImportSystem
+│   ├── FileImporter
+│   ├── MediaProcessor
+│   ├── MetadataExtractor
+│   └── ThumbnailGenerator
+├── ExportSystem
+│   ├── RenderEngine
+│   ├── ExportDialog
+│   ├── FFmpegWrapper
+│   └── ProgressTracker
+├── UserInterface
+│   ├── EditingToolbar
+│   ├── ContextMenus
+│   └── KeyboardShortcuts
+└── ProfessionalFeatures
+    ├── AdvancedTrimming
+    ├── MultiTrackEditing
+    └── EffectsSystem
+```
+
+### **Data Structure**
+```javascript
+const editingData = {
+  currentTool: 'select',
+  editHistory: [
+    {
+      type: 'trim',
+      clipId: 'clip1',
+      oldStart: 0,
+      newStart: 30,
+      timestamp: Date.now()
+    }
+  ],
+  clipProperties: {
+    startFrames: 0,
+    endFrames: 300,
+    duration: 300,
+    speed: 1.0,
+    track: 1,
+    opacity: 1.0,
+    mediaType: 'video' // 'video', 'image', 'audio'
+  },
+  importedMedia: [
+    {
+      id: 'media1',
+      type: 'video', // 'video', 'image', 'audio'
+      filename: 'example.mp4',
+      path: 'imported/example.mp4',
+      duration: 45.2,
+      metadata: {
+        width: 1920,
+        height: 1080,
+        fps: 30,
+        codec: 'h264'
+      },
+      thumbnail: 'thumbnails/media1.jpg'
+    }
+  ],
+  timelineZoom: 1.0,
+  selectedClips: ['clip1', 'clip2'],
+  exportSettings: {
+    resolution: '1920x1080',
+    frameRate: 60,
+    codec: 'h264',
+    bitrate: '5000k',
+    outputPath: ''
+  }
+};
+```
+
+### **Key Functions**
+- `trimClip(clipId, newStart, newEnd)` - Trim clip to new boundaries
+- `splitClip(clipId, splitFrame)` - Split clip at specified frame
+- `mergeClips(clipIds)` - Merge multiple clips
+- `adjustSpeed(clipId, speed)` - Change clip playback speed
+- `undoEdit()` - Undo last edit operation
+- `redoEdit()` - Redo undone edit operation
+- `importMedia(files)` - Import media files (video, image, audio)
+- `processMedia(file)` - Extract metadata and generate thumbnails
+- `addMediaToTimeline(mediaId, track, position)` - Add imported media to timeline
+- `exportTimeline(settings)` - Render timeline to MP4 video
+- `validateTimeline()` - Check timeline for export readiness
+
+---
+
+## 🎨 **UI/UX DESIGN**
+
+### **Layout Structure**
+- **Editing Toolbar** - Tool selection and edit actions
+- **Timeline Area** - Enhanced timeline with editing tools
+- **Properties Panel** - Clip properties and settings
+- **Context Menus** - Right-click functionality
+- **Import Media Dialog** - File picker for importing media files
+- **Export Dialog** - Settings and progress for video export
+
+### **Visual Design**
+- **Tool Indicators** - Clear visual feedback for active tools
+- **Trim Handles** - Resizable clip edges with hover effects
+- **Selection Highlighting** - Clear indication of selected clips
+- **Professional Styling** - Industry-standard video editing interface
+
+### **User Interactions**
+- **Drag & Drop** - Intuitive clip manipulation
+- **Keyboard Shortcuts** - Quick access to common operations
+- **Context Menus** - Right-click for advanced options
+- **Visual Feedback** - Clear indication of all operations
+
+---
+
+## 📋 **IMPLEMENTATION PHASES**
+
+### **Phase 1: Core Editing (Weeks 1-2)**
+1. ✅ Clip trimming handles implementation
+2. ✅ Clip drag and duplication
+3. ✅ Magnetic snapping system
+4. ✅ Multi-track support
+
+### **Phase 2: Enhanced Tools (Weeks 3-4)**
+1. ✅ Basic undo/redo system
+2. Timeline zoom system
+3. Keyboard shortcuts
+4. ✅ Clip properties panel
+
+### **Phase 3: Import & Export (Weeks 5-6)**
+1. File import system (images, videos, audio)
+2. Media processing and metadata extraction
+3. Imported media tab integration
+4. Timeline preview for imported media
+5. Export dialog and settings UI
+6. Backend rendering service (FFmpeg)
+7. Export progress tracking
+8. Export validation
+
+### **Phase 4: Polish & UX (Weeks 7-8)**
+1. Context menus
+2. Visual feedback improvements
+3. Tool selection UI
+4. Performance optimization
+
+### **Phase 5: Advanced Features (V1)**
+1. Clip cutting and splitting
+2. Clip merging functionality
+3. Speed adjustment controls
+4. Advanced editing tools
+
+---
+
+## 🎯 **SUCCESS CRITERIA**
+
+### **MVP Success Criteria**
+- [x] Users can trim clips with frame accuracy
+- [x] Users can drag and duplicate clips
+- [x] Users can position clips with magnetic snapping
+- [x] All operations are undoable
+- [ ] Users can import media files (images, videos, audio)
+- [ ] Imported media appears in timeline and can be previewed
+- [ ] Users can export timeline to MP4 video
+- [ ] Export applies all edits correctly (trims, crops, positions)
+- [ ] Timeline zoom works smoothly (Moved to V0.5)
+- [ ] Keyboard shortcuts are intuitive (Moved to V0.5)
+
+### **Performance Requirements**
+- [ ] Handle 1000+ clips smoothly
+- [ ] Real-time preview during editing
+- [ ] Efficient undo/redo system
+- [ ] Fast timeline rendering
+- [ ] Responsive UI during operations
+- [ ] Fast media import processing
+- [ ] Efficient export rendering (reasonable render times)
+- [ ] Export progress updates without UI blocking
+
+### **User Experience Goals**
+- [ ] Intuitive tool selection
+- [ ] Clear visual feedback
+- [ ] Consistent keyboard shortcuts
+- [ ] Professional editing experience
+- [ ] Easy integration with existing workflow
+
+---
+
+## 🔗 **INTEGRATION POINTS**
+
+### **With Timeline Component**
+- [ ] Enhanced timeline with editing tools
+- [ ] Clip manipulation integration
+- [ ] Edit history synchronization
+- [ ] Tool state management
+
+### **With Preview Component**
+- [ ] Real-time preview during editing
+- [ ] Frame-accurate preview updates
+- [ ] Speed adjustment preview
+- [ ] Trim preview functionality
+
+### **With Backend**
+- [ ] Edit operation persistence
+- [ ] Clip metadata updates
+- [ ] Import media file handling
+- [ ] Media file storage and management
+- [ ] Export functionality (FFmpeg rendering)
+- [ ] Project save/load
+- [ ] Media processing (metadata extraction, thumbnails)
+
+---
+
+## 🔧 **TECHNICAL CONSIDERATIONS**
+
+### **Performance Requirements**
+- Handle 1000+ clips smoothly
+- Real-time preview during editing
+- Efficient undo/redo system
+- Fast timeline rendering
+- Responsive UI during operations
+
+### **Data Management**
+- Clip metadata preservation
+- Edit history storage
+- Project file optimization
+- Auto-save functionality
+- Version control integration
+
+### **Error Handling**
+- Invalid edit operation handling
+- Clip boundary validation
+- Tool state error recovery
+- User-friendly error messages
+- Graceful degradation
+
+---
+
+## 📊 **METRICS & MONITORING**
+
+### **Key Performance Indicators**
+- **Edit Operation Speed** - <100ms for trim operations
+- **Undo/Redo Performance** - <50ms for history operations
+- **Timeline Responsiveness** - <16ms for 60fps updates
+- **Memory Usage** - <100MB for typical project
+
+### **Success Metrics**
+- **User Workflow Efficiency** - Time to complete common tasks
+- **Feature Adoption** - Usage of advanced features
+- **Error Rate** - Frequency of user errors
+- **Performance Satisfaction** - User feedback on speed
+
+---
+
+## 🔮 **FUTURE ENHANCEMENTS**
+
+### **Short-term (V0.5)**
+Refer to the dedicated V0.5 section above.
+
+### **Long-term (V1+)**
+- Professional effects system
+- Multi-track editing
+- Advanced export options
+- Collaboration features
+
+---
+
+## 📝 **NOTES & CONSIDERATIONS**
+
+### **Dependencies**
+- Timeline component
+- Preview component
+- Backend editing APIs
+- Video processing libraries
+
+### **Risks & Mitigation**
+- **Performance with Large Projects** - Implement efficient algorithms and caching
+- **User Confusion** - Provide clear visual feedback and help
+- **Data Integrity** - Implement robust validation and error handling
+- **Feature Complexity** - Start with simple features and build up
+
+### **Open Questions**
+- How to handle very long clips?
+- What level of undo/redo is optimal?
+- How to balance features with performance?
+- What keyboard shortcuts are most important?
+
+---
+
+**Status**: Phase 1 Complete, Phase 2 In Progress
+**Priority**: High (Core V0 feature)
+**Estimated Time**: 4 weeks remaining (V0 complete)
+**Dependencies**: Timeline, Preview components
+**Next Phase**: Enhanced tools and UX improvements
+
+---
+
+*This plan provides a comprehensive roadmap for implementing professional video editing features, with clear phases, success criteria, and technical considerations.*

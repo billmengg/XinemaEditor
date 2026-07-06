@@ -1,0 +1,225 @@
+# MVP Video Editor Plan
+
+## VERSION STRUCTURE
+
+### **V0 - Core Clip Maker (Current MVP)**
+- File Navigator / Clip Browser
+- Timeline / Sequence Editor  
+- Preview Component
+- **Video Editing** - Cropping, cutting, trimming
+- Basic Export / Save Functionality
+
+### **V0.5 - AI-Enhanced Clip Matching**
+- Script Input & Matching
+- AI-powered clip suggestions
+- Smart timeline generation
+- Advanced clip organization
+
+### **V1 - Full Non-Prototype Version**
+- Advanced audio editing and multi-track support
+- Professional effects and color correction
+- Collaboration tools and advanced export
+- Complete video production suite
+
+1. **File Navigator / Clip Browser**
+
+---
+
+* Tree/grid view of clips by character/folder
+* Search bar: filter by ID, description, or character
+* Clip preview: first 3-5 seconds
+* Drag-and-drop support to timeline
+
+2. **Timeline / Sequence Editor**
+
+---
+
+* Horizontal timeline with clip blocks
+* Drag-and-drop clips from browser
+* Resize clip blocks (duration placeholder)
+* Scrollable timeline
+* Snap-to-grid for arrangement
+* Sequential playback of clips in timeline
+
+3. **Preview Component**
+
+---
+
+* **Timeline Playback**
+  - Play/pause timeline clips in sequence
+  - Real-time video display of current clip
+  - Playhead synchronization with timeline
+  - Automatic clip switching at boundaries
+
+* **Playback Controls**
+  - Play/pause/stop buttons
+  - Seek to specific time
+  - Playback speed controls (0.5x, 1x, 2x)
+  - Previous/next clip navigation
+
+* **Time Display**
+  - Current time and total duration
+  - Frame-accurate seeking (60fps)
+  - Timeline position indicator
+  - Clip information display
+
+4. **Video Editing Features (V0)**
+
+---
+
+* **Core Video Editing**
+  - **Clip Cropping** - Trim in/out points of clips
+  - **Clip Cutting** - Split clips into segments
+  - **Clip Merging** - Combine adjacent clips
+  - **Basic Speed Adjustment** - Slow motion, fast forward
+  - **Frame-accurate editing** - 60fps precision
+
+* **Timeline Enhancements**
+  - **Clip trimming handles** - Visual in/out point adjustment
+  - **Clip splitting tool** - Cut clips at playhead position
+  - **Undo/Redo** - Edit history management
+  - **Clip properties** - Duration, speed, position editing
+  - **Zoom levels** - 0.5x to 4x timeline zoom (moved from basic timeline)
+
+5. **Advanced Features (V1)**
+
+---
+
+* **Audio Editing**
+  - **Audio track management** - Multiple audio tracks
+  - **Volume control** - Per-clip and per-track volume
+  - **Audio input** - Record and import audio
+  - **Audio sync** - Synchronize audio with video
+  - **Audio effects** - Fade in/out, audio filters
+
+* **Professional Features**
+  - **Color correction** - Adjust brightness, contrast, saturation
+  - **Video effects** - Filters, overlays, text
+  - **Transitions** - Crossfade, wipe, dissolve effects
+  - **Keyframe animation** - Animate clip properties
+  - **Timeline markers** - Bookmark important positions
+
+* **Advanced Export**
+  - **Export presets** - Multiple quality/format options
+  - **Batch processing** - Process multiple projects
+  - **Collaboration tools** - Share and review projects
+
+6. **Clip Organization & Standardization**
+
+---
+
+* Standardized ID format (ID + description + character)
+* Backend reads CSV/SQLite for metadata
+* Frontend displays metadata: ID, description, character
+
+7. **Export / Save Functionality**
+
+---
+
+* **Project Persistence**
+  - Save project as JSON (timeline + clip IDs + metadata)
+  - Load saved projects from JSON files
+  - Auto-save functionality (every 30 seconds)
+  - Project versioning and backup
+
+* **Timeline Export**
+  - Export timeline as video sequence using FFmpeg
+  - Generate clip list for external editing
+  - Export project metadata (clips, timing, tracks)
+  - Batch export multiple projects
+
+* **Preview & Validation**
+  - Playback within editor before export
+  - Timeline validation (gaps, overlaps, missing clips)
+  - Export preview with progress indicator
+  - Error handling for missing files
+
+8. **User Flow by Version**
+
+### **V0 - Core Clip Maker**
+1. Open app → browse clips
+2. Drag clips to timeline → arrange sequence
+3. **Edit clips** → crop, cut, trim, adjust speed
+4. **Preview timeline** → play/pause/seek through sequence
+5. **Save project** → auto-save + manual save
+6. **Export project** (JSON) or sequential video
+
+### **V0.5 - AI-Enhanced**
+1. Open app → browse clips
+2. **Input script** → AI matches clips automatically
+3. **AI generates timeline** → review and adjust
+4. **Preview AI-generated sequence** → fine-tune
+5. **Save project** → auto-save + manual save
+6. **Export project** (JSON) or sequential video
+
+### **V1 - Full Production Suite**
+1. Open app → browse clips
+2. **Advanced editing** → crop, cut, adjust audio
+3. **Multi-track timeline** → video and audio layers
+4. **Professional effects** → color correction, transitions
+5. **Advanced export** → multiple formats and quality
+6. **Collaboration** → share and review projects
+
+6. **Additional MVP Considerations**
+
+---
+
+* Minimal, clean UI
+* Handle \~500–1000 clips smoothly
+* Desktop first (PyQt / Electron), future web version possible
+* Local file access, no cloud required for MVP
+* Accept MP3 audio, no sync yet (sequential clip output only)
+
+9. **Roadmap / Milestones by Version**
+
+### **V0 - Core Clip Maker (7 weeks)**
+* Week 1: File navigator / clip browser
+* Week 2: Timeline / drag-and-drop editor
+* Week 3: **Preview component** + playback controls
+* Week 4: **Video editing** - cropping, cutting, trimming
+* Week 5: **Export/save functionality** + project persistence
+* Week 6: Basic UI polish and testing
+* Week 7: Performance optimization and bug fixes
+
+### **V0.5 - AI-Enhanced (4 weeks)**
+* Week 1: Script input & AI matching logic
+* Week 2: AI-powered clip suggestions
+* Week 3: Smart timeline generation
+* Week 4: AI integration testing and refinement
+
+### **V1 - Full Production Suite (6 weeks)**
+* Week 1-2: Audio editing and multi-track support
+* Week 3-4: Professional features (color correction, transitions)
+* Week 5-6: Collaboration tools and advanced export
+
+
+Xinema/
+├── backend/                  # Node.js backend for file ops, video metadata
+│   ├── package.json
+│   ├── server.js             # main backend entrypoint
+│   ├── controllers/          # business logic
+│   │   └── fileController.js
+│   ├── utils/                # helper functions (file parsing, renaming)
+│   │   └── idParser.js
+│   └── data/                 # temp data storage / database (if needed)
+│       └── video_files.json
+│
+├── frontend/                 # React app
+│   ├── package.json
+│   ├── public/
+│   │   └── index.html
+│   └── src/
+│       ├── App.jsx
+│       ├── index.jsx
+│       ├── components/       # reusable UI components
+│       │   ├── FileNavigator.jsx
+│       │   ├── Timeline.jsx
+│       │   ├── ClipCard.jsx
+│       │   └── ScriptInput.jsx
+│       ├── hooks/            # custom React hooks
+│       │   └── useFileData.js
+│       └── styles/           # CSS or Tailwind
+│           └── main.css
+│
+.gitignore
+README.md

@@ -1,0 +1,351 @@
+# Plan 2.1: File Navigator / Clip Browser
+
+## 📋 **Overview**
+The File Navigator / Clip Browser is the primary interface for browsing, searching, and managing video clips. It provides a tabbed interface with folder navigation, clip metadata display, and preview functionality for efficient clip selection and organization.
+
+---
+
+## ✅ **COMPLETED FEATURES**
+
+### **Core Implementation**
+- ✅ **Tabbed Interface** - Clean tabbed UI with File Navigator as primary tab
+- ✅ **Video Preview Implementation** - Actual video player with play/pause/scrub controls
+- ✅ **Media Library Implementation** - Complete clip list with metadata columns
+- ✅ **Layout & Navigation** - Resizable panels with proper integration
+
+### **Technical Features**
+- ✅ **Multi-format Support** - Support for MP4, MOV, and other video formats
+- ✅ **Auto-play on Selection** - Automatic video playback when clip is selected
+- ✅ **Error Handling** - Proper video loading and error handling
+- ✅ **Responsive Layout** - Resizable panels with smooth integration
+
+### **User Interface**
+- ✅ **Clean Design** - Minimal, professional UI with metadata display
+- ✅ **Search & Filter** - Filter by filename, ID, character, season, episode
+- ✅ **Sorting Options** - Sort by ID, Character, Season, Episode
+- ✅ **Character Filtering** - Filter clips by character selection
+
+---
+
+## 🎯 **MVP FEATURES (V0) - COMPLETED**
+
+### **1. File Navigation & Organization**
+- ✅ **Basic Folder Navigation** - Browse and select folders
+- ✅ **Clip Metadata Display** - Show filename, character, ID, season, episode
+- ✅ **Search & Filter** - Filter by filename, ID, character, season, episode
+- ✅ **Sorting Options** - Sort by ID, Character, Season, Episode
+
+### **2. Visual Enhancements**
+- ✅ **Video Preview** - Actual video player with play/pause/scrub controls
+- ✅ **Responsive Layout** - Resizable panels with proper integration
+- ✅ **Clean Design** - Minimal, professional UI with metadata display
+- ✅ **Auto-play on Selection** - Automatic video playback when clip is selected
+
+### **3. User Interactions**
+- ✅ **Drag & Drop** - Drag clips from library to timeline
+- ✅ **Clip Selection** - Click to select and preview clips
+- ✅ **Multi-format Support** - Support for MP4, MOV, and other video formats
+- ✅ **Error Handling** - Proper video loading and error handling
+
+---
+
+## 🚀 **FUTURE ADVANCED FEATURES (V1+)**
+
+### **Enhanced File Navigation**
+- [ ] **Folder Hierarchy Navigation**
+  - [ ] Browse actual local directories (e.g., Video Footage 2)
+  - [ ] Expand character folders to show clips
+  - [ ] Remember last opened folder
+  - [ ] File system integration
+
+- [ ] **Clip Metadata Management**
+  - [ ] Real duration extraction from video files
+  - [ ] Cache duration data for performance
+  - [ ] Update duration when files are modified
+  - [ ] Display accurate clip information
+
+### **Visual Enhancements**
+- [ ] **Thumbnail Generation**
+  - [ ] Replace placeholder thumbnails with actual video thumbnails
+  - [ ] Generate thumbnails on first load
+  - [ ] Cache thumbnails for performance
+  - [ ] Support for multiple thumbnail sizes
+
+- [ ] **Advanced Search & Filtering**
+  - [ ] Date range filtering
+  - [ ] Duration range filtering
+  - [ ] File size filtering
+  - [ ] Advanced search with multiple criteria
+
+### **User Interactions**
+- [ ] **Context Menu Backend Integration**
+  - [ ] Implement actual rename functionality
+  - [ ] Implement actual delete functionality
+  - [ ] Implement actual move functionality
+  - [ ] Connect to backend API endpoints
+
+- [ ] **Multi-select Operations**
+  - [ ] Select multiple clips at once
+  - [ ] Batch operations on selected clips
+  - [ ] Bulk metadata editing
+  - [ ] Group operations
+
+### **Professional Features**
+- [ ] **AI-Powered Search**
+  - [ ] Describe a scene and get recommended clips
+  - [ ] Smart clip suggestions based on content
+  - [ ] Natural language search queries
+  - [ ] Content-based filtering
+
+- [ ] **Advanced Preview**
+  - [ ] Thumbnail cycle to view clip like YouTube
+  - [ ] Waveform display for audio
+  - [ ] Audio level meters
+  - [ ] Audio scrubbing controls
+
+### **Performance Features**
+- [ ] **Virtual Scrolling**
+  - [ ] Handle large clip libraries (1000+ clips)
+  - [ ] Lazy loading of thumbnails
+  - [ ] Pagination for large datasets
+  - [ ] Background processing for heavy operations
+
+- [ ] **Smart Caching**
+  - [ ] Intelligent thumbnail caching
+  - [ ] Metadata caching system
+  - [ ] Progressive loading
+  - [ ] Memory optimization
+
+---
+
+## 🔧 **TECHNICAL IMPLEMENTATION**
+
+### **Architecture**
+```
+FileNavigator
+├── TabbedInterface
+│   ├── FileNavigatorTab
+│   ├── TimelineTab (future)
+│   ├── ScriptTab (future)
+│   └── ExportTab (future)
+├── MediaLibrary
+│   ├── ClipList
+│   ├── SearchFilter
+│   └── SortControls
+├── VideoPreview
+│   ├── VideoPlayer
+│   ├── PlaybackControls
+│   └── MetadataDisplay
+└── FolderNavigation
+    ├── FolderTree
+    └── BreadcrumbNav
+```
+
+### **Data Structure**
+```javascript
+const clipData = {
+  id: "VI.S1.E1.C14",
+  character: "Vi",
+  filename: "VI.S1.E1.C14 Vi Gang Break Into Jayce's Lab.mp4",
+  filePath: "/path/to/video.mp4",
+  duration: 5.2, // seconds
+  season: 1,
+  episode: 1,
+  clipOrder: 14,
+  thumbnail: "base64_image_data",
+  metadata: {
+    fileSize: 12345678,
+    resolution: "1920x1080",
+    frameRate: 24,
+    codec: "h264"
+  }
+};
+```
+
+### **Key Functions**
+- `loadClipLibrary(folderPath)` - Load clips from specified folder
+- `searchClips(query, filters)` - Search and filter clips
+- `generateThumbnail(videoPath)` - Generate thumbnail for video
+- `updateClipMetadata(clipId, metadata)` - Update clip information
+
+---
+
+## 🎨 **UI/UX DESIGN**
+
+### **Layout Structure**
+- **Left Panel** - Folder navigation tree
+- **Main Panel** - Clip list with metadata columns
+- **Right Panel** - Video preview with controls
+- **Top Bar** - Search, filter, and sort controls
+
+### **Visual Design**
+- **Clean Interface** - Minimal design with clear visual hierarchy
+- **Consistent Styling** - Unified color scheme and typography
+- **Responsive Layout** - Adapts to different screen sizes
+- **Professional Look** - Industry-standard video editing interface
+
+### **User Interactions**
+- **Drag & Drop** - Drag clips to timeline
+- **Context Menus** - Right-click for clip actions
+- **Keyboard Shortcuts** - Quick navigation and actions
+- **Hover Effects** - Visual feedback on interactions
+
+---
+
+## 📋 **IMPLEMENTATION PHASES**
+
+### **Phase 1: Core Navigation (Week 1-2)**
+1. Folder hierarchy navigation implementation
+2. Real duration extraction from video files
+3. Basic thumbnail generation system
+4. Enhanced search and filtering
+
+### **Phase 2: Advanced Features (Week 3-4)**
+1. Context menu backend integration
+2. Multi-select operations
+3. Advanced search capabilities
+4. Performance optimizations
+
+### **Phase 3: Polish & Integration (Week 5-6)**
+1. UI/UX refinements
+2. Error handling improvements
+3. Integration with other components
+4. Performance testing and optimization
+
+---
+
+## 🎯 **SUCCESS CRITERIA**
+
+### **MVP Success Criteria**
+- [ ] Users can browse folder hierarchies smoothly
+- [ ] Real video durations are displayed accurately
+- [ ] Thumbnails load quickly and efficiently
+- [ ] Search and filtering work intuitively
+- [ ] Video preview plays without errors
+
+### **Performance Requirements**
+- [ ] Handle 1000+ clips without performance issues
+- [ ] Thumbnails load within 2 seconds
+- [ ] Search results appear within 500ms
+- [ ] Smooth scrolling through large clip lists
+- [ ] Responsive UI during heavy operations
+
+### **User Experience Goals**
+- [ ] Intuitive folder navigation
+- [ ] Clear visual feedback for all actions
+- [ ] Consistent behavior across all features
+- [ ] Professional video editing interface
+- [ ] Easy integration with timeline workflow
+
+---
+
+## 🔗 **INTEGRATION POINTS**
+
+### **With Timeline Component**
+- [ ] Drag clips from library to timeline
+- [ ] Sync clip selection between components
+- [ ] Maintain clip metadata consistency
+- [ ] Support timeline clip management
+
+### **With Preview Component**
+- [ ] Share video preview functionality
+- [ ] Sync playback state
+- [ ] Coordinate video loading
+- [ ] Maintain preview consistency
+
+### **With Backend**
+- [ ] File system access for folder browsing
+- [ ] Video metadata extraction
+- [ ] Thumbnail generation services
+- [ ] Clip management API endpoints
+
+---
+
+## 🔧 **TECHNICAL CONSIDERATIONS**
+
+### **Performance Requirements**
+- Handle large video libraries (1000+ files)
+- Fast thumbnail generation and caching
+- Efficient search and filtering algorithms
+- Responsive UI during heavy operations
+- Memory management for large datasets
+
+### **Data Management**
+- Clip metadata storage and caching
+- Thumbnail cache management
+- File system monitoring for changes
+- Efficient data structures for search
+- Background processing for heavy tasks
+
+### **Error Handling**
+- Video file corruption handling
+- Network timeout management
+- File permission error handling
+- Graceful degradation for missing features
+- User-friendly error messages
+
+---
+
+## 📊 **METRICS & MONITORING**
+
+### **Key Performance Indicators**
+- **Clip Loading Time** - <2 seconds for thumbnail generation
+- **Search Response Time** - <500ms for search results
+- **Memory Usage** - <100MB for typical project
+- **Cache Hit Rate** - >80% for frequently accessed clips
+
+### **Success Metrics**
+- **User Engagement** - Time spent browsing clips
+- **Search Effectiveness** - Successful clip finds per search
+- **Performance Satisfaction** - User feedback on speed
+- **Feature Adoption** - Usage of advanced features
+
+---
+
+## 🔮 **FUTURE ENHANCEMENTS**
+
+### **Short-term (V0.5)**
+- AI-powered clip recommendations
+- Advanced metadata extraction
+- Batch operations for clip management
+- Enhanced preview controls
+
+### **Long-term (V1+)**
+- Cloud storage integration
+- Collaborative clip sharing
+- Advanced AI search capabilities
+- Professional clip organization tools
+
+---
+
+## 📝 **NOTES & CONSIDERATIONS**
+
+### **Dependencies**
+- Backend file system access
+- Video processing libraries
+- Thumbnail generation services
+- Search and indexing systems
+
+### **Risks & Mitigation**
+- **Large File Performance** - Implement virtual scrolling and lazy loading
+- **Memory Usage** - Use efficient caching and cleanup strategies
+- **File System Access** - Implement proper error handling and fallbacks
+- **Video Format Support** - Use robust video processing libraries
+
+### **Open Questions**
+- Should we support cloud storage integration?
+- How to handle very large video files?
+- What metadata is most important for users?
+- How to balance performance with feature richness?
+
+---
+
+**Status**: MVP V0 complete, V1 features in development
+**Priority**: Medium (V0 complete, V1 features)
+**Estimated Time**: 4 weeks (V1 features)
+**Dependencies**: Backend file system, video processing
+**Next Phase**: Enhanced navigation and advanced features
+
+---
+
+*This plan provides a comprehensive roadmap for implementing a professional file navigator and clip browser, with clear phases, success criteria, and technical considerations.*
