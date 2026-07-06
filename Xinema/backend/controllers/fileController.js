@@ -40,11 +40,18 @@ let isProcessingBackground = false;
 // Only called on-demand when requests are made
 const processBackgroundQueue = async () => {
   if (isProcessingBackground || backgroundQueue.length === 0) return;
-  
+
   isProcessingBackground = true;
-  console.log('🔄 Processing background queue:', backgroundQueue.length, 'tasks');
-  
-  while (backgroundQueue.length > 0 && activeFrameExtractions < MAX_CONCURRENT_EXTRACTIONS) {
+  console.log(
+    '🔄 Processing background queue:',
+    backgroundQueue.length,
+    'tasks'
+  );
+
+  while (
+    backgroundQueue.length > 0 &&
+    activeFrameExtractions < MAX_CONCURRENT_EXTRACTIONS
+  ) {
     const task = backgroundQueue.shift();
     try {
       await task();
@@ -52,7 +59,7 @@ const processBackgroundQueue = async () => {
       console.error('❌ Background task failed:', error);
     }
   }
-  
+
   isProcessingBackground = false;
 };
 
@@ -75,16 +82,16 @@ function cleanupCache() {
       frameCache.delete(key);
     }
   }
-  
+
   // If still over limit, remove oldest entries
   if (frameCache.size > CACHE_SIZE_LIMIT) {
     const entries = Array.from(frameCache.entries());
     entries.sort((a, b) => a[1].timestamp - b[1].timestamp);
-    
+
     const toRemove = entries.slice(0, frameCache.size - CACHE_SIZE_LIMIT);
     toRemove.forEach(([key]) => frameCache.delete(key));
   }
-  
+
   // Advanced memory management - clean up preview sequences
   for (const [key, sequence] of previewSequences.entries()) {
     if (Date.now() - sequence.generated > CACHE_EXPIRY_TIME) {
@@ -102,21 +109,21 @@ function cleanupCache() {
 // Generate preview sequence for a video (like Premiere does)
 async function generatePreviewSequence(character, filename, videoPath) {
   const sequenceKey = `${character}/${filename}`;
-  
+
   // Check if sequence already exists
   if (previewSequences.has(sequenceKey)) {
     console.log('⚡ Preview sequence already exists:', sequenceKey);
     return previewSequences.get(sequenceKey);
   }
-  
+
   console.log('🎬 Generating preview sequence for:', sequenceKey);
-  
+
   try {
     // Get video duration
     const videoInfo = await getVideoInfo(character, filename);
     const duration = videoInfo.duration;
     const frameRate = videoInfo.frameRate || 24;
-    
+
     // Calculate frame positions for preview sequence
     const previewFrames = [];
     for (let time = 0; time < duration; time += PREVIEW_FRAME_INTERVAL) {
@@ -124,21 +131,27 @@ async function generatePreviewSequence(character, filename, videoPath) {
       previewFrames.push({
         time: time,
         frameNumber: frameNumber,
-        data: null // Will be populated when frame is requested
+        data: null, // Will be populated when frame is requested
       });
     }
-    
+
     // Store the sequence structure
     const sequence = {
       frames: previewFrames,
       duration: duration,
       frameRate: frameRate,
-      generated: Date.now()
+      generated: Date.now(),
     };
-    
+
     previewSequences.set(sequenceKey, sequence);
-    console.log('✅ Preview sequence generated:', sequenceKey, 'with', previewFrames.length, 'frames');
-    
+    console.log(
+      '✅ Preview sequence generated:',
+      sequenceKey,
+      'with',
+      previewFrames.length,
+      'frames'
+    );
+
     return sequence;
   } catch (error) {
     console.error('❌ Error generating preview sequence:', error);
@@ -149,11 +162,11 @@ async function generatePreviewSequence(character, filename, videoPath) {
 // Get the nearest preview frame for a given time (with smart interpolation)
 function getNearestPreviewFrame(sequence, targetTime) {
   if (!sequence || !sequence.frames) return null;
-  
+
   // Find the closest frame by time
   let closestFrame = sequence.frames[0];
   let minDiff = Math.abs(targetTime - closestFrame.time);
-  
+
   for (const frame of sequence.frames) {
     const diff = Math.abs(targetTime - frame.time);
     if (diff < minDiff) {
@@ -161,23 +174,27 @@ function getNearestPreviewFrame(sequence, targetTime) {
       closestFrame = frame;
     }
   }
-  
+
   // Smart interpolation - if frame is missing data, try to restore it
   if (closestFrame && !closestFrame.data && closestFrame.isDuplicate) {
     // Find the original frame this was duplicated from
-    const originalFrame = sequence.frames.find(f => 
-      f.frameNumber === closestFrame.frameNumber - 1 && f.data
+    const originalFrame = sequence.frames.find(
+      f => f.frameNumber === closestFrame.frameNumber - 1 && f.data
     );
     if (originalFrame) {
       closestFrame.data = originalFrame.data;
     }
   }
-  
+
   return closestFrame;
 }
 
 // Premiere Pro & DaVinci Resolve style thumbnail generation with priority support
-async function generatePremiereStyleThumbnail(videoPath, frameNumber, isUrgent = false) {
+async function generatePremiereStyleThumbnail(
+  videoPath,
+  frameNumber,
+  isUrgent = false
+) {
   // Use the priority-aware extractPreviewFrame function
   return await extractPreviewFrame(videoPath, frameNumber, 24, isUrgent);
 }
@@ -186,39 +203,50 @@ async function generatePremiereStyleThumbnail(videoPath, frameNumber, isUrgent =
 async function generateVideoThumbnail(videoPath, frameNumber) {
   return new Promise((resolve, reject) => {
     const timePosition = frameNumber / 24; // Assume 24fps for thumbnail generation
-    
+
     // Ultra-fast thumbnail generation like Premiere Pro
     const ffmpegArgs = [
-      '-hwaccel', 'auto', // GPU acceleration
-      '-ss', timePosition.toString(),
-      '-i', videoPath,
-      '-vframes', '1',
-      '-f', 'image2pipe',
-      '-vcodec', 'mjpeg', // JPEG for faster processing
-      '-q:v', '2', // High quality but fast
-      '-s', '320x180', // Small thumbnail size for instant loading
-      '-threads', '2', // Minimal threads
-      '-preset', 'ultrafast',
-      '-loglevel', 'error',
+      '-hwaccel',
+      'auto', // GPU acceleration
+      '-ss',
+      timePosition.toString(),
+      '-i',
+      videoPath,
+      '-vframes',
+      '1',
+      '-f',
+      'image2pipe',
+      '-vcodec',
+      'mjpeg', // JPEG for faster processing
+      '-q:v',
+      '2', // High quality but fast
+      '-s',
+      '320x180', // Small thumbnail size for instant loading
+      '-threads',
+      '2', // Minimal threads
+      '-preset',
+      'ultrafast',
+      '-loglevel',
+      'error',
       '-nostdin',
-      '-'
+      '-',
     ];
-    
+
     const ffmpeg = spawn('ffmpeg', ffmpegArgs);
     let thumbnailData = Buffer.alloc(0);
-    
-    ffmpeg.stdout.on('data', (chunk) => {
+
+    ffmpeg.stdout.on('data', chunk => {
       thumbnailData = Buffer.concat([thumbnailData, chunk]);
     });
-    
+
     ffmpeg.stdout.on('end', () => {
       resolve(thumbnailData);
     });
-    
-    ffmpeg.on('error', (error) => {
+
+    ffmpeg.on('error', error => {
       reject(error);
     });
-    
+
     // Very short timeout for instant response
     setTimeout(() => {
       ffmpeg.kill('SIGTERM');
@@ -228,7 +256,12 @@ async function generateVideoThumbnail(videoPath, frameNumber) {
 }
 
 // Extract and cache a preview frame with priority support
-async function extractPreviewFrame(videoPath, frameNumber, frameRate, isUrgent = false) {
+async function extractPreviewFrame(
+  videoPath,
+  frameNumber,
+  frameRate,
+  isUrgent = false
+) {
   // Priority-based rate limiting
   if (isUrgent) {
     // Urgent requests (on-demand) get priority
@@ -245,79 +278,91 @@ async function extractPreviewFrame(videoPath, frameNumber, frameRate, isUrgent =
       return null;
     }
   }
-  
+
   if (isUrgent) {
     urgentExtractions++;
   }
   activeFrameExtractions++;
-  
+
   return new Promise((resolve, reject) => {
     const timePosition = frameNumber / frameRate;
     const startTime = performance.now();
-    
+
     // eslint-disable-next-line no-console
     console.log('🎬 FFmpeg extraction starting:', {
       videoPath,
       frameNumber,
       timePosition,
       frameRate,
-      isUrgent
+      isUrgent,
     });
-    
+
     // Scale to target resolution (1080x720) while maintaining aspect ratio
     const ffmpegArgs = [
-      '-hwaccel', 'auto', // Enable hardware acceleration
-      '-ss', timePosition.toString(),
-      '-i', videoPath,
-      '-vf', `scale=${TARGET_WIDTH}:${TARGET_HEIGHT}:force_original_aspect_ratio=decrease,pad=${TARGET_WIDTH}:${TARGET_HEIGHT}:(ow-iw)/2:(oh-ih)/2:black`,
-      '-vframes', '1',
-      '-f', 'image2pipe',
-      '-vcodec', 'mjpeg', // JPEG is faster than PNG
-      '-q:v', '3', // Balanced quality (not too low)
-      '-threads', '2', // Allow 2 threads for better performance
-      '-preset', 'ultrafast', // Fastest encoding preset
-      '-tune', 'fastdecode', // Optimize for fast decoding
-      '-loglevel', 'error', // Reduce logging overhead
+      '-hwaccel',
+      'auto', // Enable hardware acceleration
+      '-ss',
+      timePosition.toString(),
+      '-i',
+      videoPath,
+      '-vf',
+      `scale=${TARGET_WIDTH}:${TARGET_HEIGHT}:force_original_aspect_ratio=decrease,pad=${TARGET_WIDTH}:${TARGET_HEIGHT}:(ow-iw)/2:(oh-ih)/2:black`,
+      '-vframes',
+      '1',
+      '-f',
+      'image2pipe',
+      '-vcodec',
+      'mjpeg', // JPEG is faster than PNG
+      '-q:v',
+      '3', // Balanced quality (not too low)
+      '-threads',
+      '2', // Allow 2 threads for better performance
+      '-preset',
+      'ultrafast', // Fastest encoding preset
+      '-tune',
+      'fastdecode', // Optimize for fast decoding
+      '-loglevel',
+      'error', // Reduce logging overhead
       '-nostdin', // Disable stdin to reduce overhead
       '-y', // Overwrite output files
-      '-'
+      '-',
     ];
-    
+
     const ffmpeg = spawn('ffmpeg', ffmpegArgs);
     let frameData = Buffer.alloc(0);
-    
-    ffmpeg.stdout.on('data', (chunk) => {
+
+    ffmpeg.stdout.on('data', chunk => {
       frameData = Buffer.concat([frameData, chunk]);
     });
-    
+
     ffmpeg.stdout.on('end', () => {
       const endTime = performance.now();
       const duration = endTime - startTime;
-      
+
       activeFrameExtractions--;
       if (isUrgent) {
         urgentExtractions--;
       }
-      
+
       // eslint-disable-next-line no-console
       console.log('✅ FFmpeg extraction complete:', {
         duration: `${duration.toFixed(1)}ms`,
         frameSize: frameData.length,
         frameNumber,
-        isUrgent
+        isUrgent,
       });
-      
+
       resolve(frameData);
     });
-    
-    ffmpeg.on('error', (error) => {
+
+    ffmpeg.on('error', error => {
       activeFrameExtractions--;
       if (isUrgent) {
         urgentExtractions--;
       }
       reject(error);
     });
-    
+
     // Reasonable timeout for new clips (not too aggressive)
     setTimeout(() => {
       ffmpeg.kill('SIGTERM');
@@ -331,34 +376,41 @@ async function extractPreviewFrame(videoPath, frameNumber, frameRate, isUrgent =
 }
 
 // INSTANT FRAME SYSTEM - Premiere Pro style sparse keyframe index
-async function preExtractTimelineFrames(character, filename, videoPath, frameRate, duration) {
+async function preExtractTimelineFrames(
+  character,
+  filename,
+  videoPath,
+  frameRate,
+  duration
+) {
   const sequenceKey = `${character}/${filename}`;
-  
+
   // Check if already generated recently
   const existingSequence = previewSequences.get(sequenceKey);
-  if (existingSequence && (Date.now() - existingSequence.generated) < 300000) { // 5 minute cooldown
+  if (existingSequence && Date.now() - existingSequence.generated < 300000) {
+    // 5 minute cooldown
     // eslint-disable-next-line no-console
     console.log('⚡ Keyframe index already exists:', sequenceKey);
     return existingSequence;
   }
-  
+
   // eslint-disable-next-line no-console
   console.log('🎬 Creating INSTANT keyframe index:', sequenceKey);
-  
+
   try {
     const totalFrames = Math.floor(duration * frameRate);
-    
+
     // Create sparse keyframe index - Premiere Pro approach
     // Generate keyframes at strategic intervals for instant seeking
     const keyframes = [];
     const intervals = [
-      1,      // Frame 1 (first frame)
-      30,     // Every 1 second at 30fps
-      60,     // Every 2 seconds at 30fps  
-      150,    // Every 5 seconds at 30fps
-      300     // Every 10 seconds at 30fps
+      1, // Frame 1 (first frame)
+      30, // Every 1 second at 30fps
+      60, // Every 2 seconds at 30fps
+      150, // Every 5 seconds at 30fps
+      300, // Every 10 seconds at 30fps
     ];
-    
+
     // Generate keyframes using multiple intervals
     intervals.forEach(interval => {
       for (let frame = 0; frame < totalFrames; frame += interval) {
@@ -367,28 +419,31 @@ async function preExtractTimelineFrames(character, filename, videoPath, frameRat
         }
       }
     });
-    
+
     // Sort and limit to reasonable number
     keyframes.sort((a, b) => a - b);
     const maxKeyframes = Math.min(20, keyframes.length); // Max 20 keyframes for instant access
     const finalKeyframes = keyframes.slice(0, maxKeyframes);
-    
+
     // eslint-disable-next-line no-console
     console.log('📊 Keyframe strategy:', {
       totalFrames,
       keyframesGenerated: finalKeyframes.length,
       intervals: intervals.join(', '),
-      coverage: `${(finalKeyframes.length / totalFrames * 100).toFixed(1)}%`
+      coverage: `${((finalKeyframes.length / totalFrames) * 100).toFixed(1)}%`,
     });
-    
+
     // Extract keyframes in parallel (limited concurrency for speed)
-    const extractionPromises = finalKeyframes.map(frameNumber => 
-      extractPreviewFrame(videoPath, frameNumber, frameRate, false) // Not urgent
+    const extractionPromises = finalKeyframes.map(
+      frameNumber =>
+        extractPreviewFrame(videoPath, frameNumber, frameRate, false) // Not urgent
     );
-    
+
     const results = await Promise.allSettled(extractionPromises);
-    const successfulExtractions = results.filter(result => result.status === 'fulfilled').length;
-    
+    const successfulExtractions = results.filter(
+      result => result.status === 'fulfilled'
+    ).length;
+
     // Create the instant access sequence
     const sequence = {
       character,
@@ -398,19 +453,19 @@ async function preExtractTimelineFrames(character, filename, videoPath, frameRat
       duration,
       generated: Date.now(),
       totalFrames: successfulExtractions,
-      instantAccess: true // Flag for instant access
+      instantAccess: true, // Flag for instant access
     };
-    
+
     previewSequences.set(sequenceKey, sequence);
-    
+
     // eslint-disable-next-line no-console
     console.log('✅ INSTANT keyframe index complete:', {
       sequenceKey,
       keyframes: successfulExtractions,
       totalDuration: duration,
-      instantAccess: true
+      instantAccess: true,
     });
-    
+
     return sequence;
   } catch (error) {
     // eslint-disable-next-line no-console
@@ -424,11 +479,11 @@ function findNearestKeyframe(sequence, targetFrame) {
   if (!sequence || !sequence.keyframes || sequence.keyframes.length === 0) {
     return null;
   }
-  
+
   // Find the closest keyframe
   let nearestKeyframe = sequence.keyframes[0];
   let minDistance = Math.abs(targetFrame - nearestKeyframe);
-  
+
   for (const keyframe of sequence.keyframes) {
     const distance = Math.abs(targetFrame - keyframe);
     if (distance < minDistance) {
@@ -436,11 +491,11 @@ function findNearestKeyframe(sequence, targetFrame) {
       nearestKeyframe = keyframe;
     }
   }
-  
+
   return {
     frame: nearestKeyframe,
     distance: minDistance,
-    isExact: minDistance === 0
+    isExact: minDistance === 0,
   };
 }
 
@@ -448,60 +503,75 @@ function findNearestKeyframe(sequence, targetFrame) {
 const csvPath = path.join(__dirname, '../data/clips.csv');
 
 // Function to get video duration using FFprobe (more reliable)
-const getVideoDuration = async (videoPath) => {
+const getVideoDuration = async videoPath => {
   try {
     if (!fs.existsSync(videoPath)) {
-      return "0:00";
+      return '0:00';
     }
-    
+
     // Use FFprobe to get duration (more reliable than PowerShell)
     const command = `ffprobe -v quiet -show_entries format=duration -of csv=p=0 "${videoPath}"`;
-    
+
     const { stdout } = await execAsync(command);
     const durationInSeconds = parseFloat(stdout.trim());
-    
+
     if (isNaN(durationInSeconds) || durationInSeconds <= 0) {
-      return "0:00";
+      return '0:00';
     }
-    
+
     // Convert seconds to MM:SS format
     const minutes = Math.floor(durationInSeconds / 60);
     const seconds = Math.floor(durationInSeconds % 60);
     const duration = `${minutes}:${seconds.toString().padStart(2, '0')}`;
-    
+
     return duration;
   } catch (error) {
-    console.error('Error getting video duration for', videoPath, ':', error.message);
-    return "0:00";
+    console.error(
+      'Error getting video duration for',
+      videoPath,
+      ':',
+      error.message
+    );
+    return '0:00';
   }
 };
-
 
 const getAllClips = async (req, res) => {
   try {
     const rows = [];
-    
+
     // First, read all CSV data
     await new Promise((resolve, reject) => {
       fs.createReadStream(csvPath)
         .pipe(csv())
-        .on('data', (row) => rows.push(row))
+        .on('data', row => rows.push(row))
         .on('end', resolve)
         .on('error', reject);
     });
-    
-    const videoBaseDir = path.join('C:', 'Users', 'William', 'Documents', 'YouTube', 'Video', 'Arcane Footage', 'Video Footage 2');
+
+    const videoBaseDir = path.join(
+      'C:',
+      'Users',
+      'William',
+      'Documents',
+      'YouTube',
+      'Video',
+      'Arcane Footage',
+      'Video Footage 2'
+    );
 
     // Process rows, filtering out clips whose video files don't exist on disk
     const clips = rows
-      .filter((row) => {
+      .filter(row => {
         if (!row.character || !row.filename) return false;
         const videoPath = path.join(videoBaseDir, row.character, row.filename);
         return fs.existsSync(videoPath);
       })
-      .map((row) => {
+      .map(row => {
         // Parse season, episode, order from the ID (format: XX.S1.E1.C01)
-        let season = '', episode = '', order = '';
+        let season = '',
+          episode = '',
+          order = '';
         const idMatch = row.id.match(/S(\d+)\.E(\d+)\.C(\d+)/i);
         if (idMatch) {
           season = `S${idMatch[1]}`;
@@ -514,7 +584,7 @@ const getAllClips = async (req, res) => {
           season,
           episode,
           order,
-          duration: "0:00", // Placeholder - will be loaded when needed
+          duration: '0:00', // Placeholder - will be loaded when needed
           thumbnail: null,
         };
       });
@@ -528,31 +598,41 @@ const getAllClips = async (req, res) => {
 
 const getVideoFile = (req, res) => {
   const { character, filename } = req.params;
-  
+
   // Decode URL-encoded filename
   const decodedFilename = decodeURIComponent(filename);
-  
+
   // Construct the path to the video file
   const videoPath = path.join(
-    'C:', 'Users', 'William', 'Documents', 'YouTube', 'Video', 'Arcane Footage', 'Video Footage 2',
-    character, decodedFilename
+    'C:',
+    'Users',
+    'William',
+    'Documents',
+    'YouTube',
+    'Video',
+    'Arcane Footage',
+    'Video Footage 2',
+    character,
+    decodedFilename
   );
-  
+
   // Check if file exists
   if (!fs.existsSync(videoPath)) {
-    return res.status(404).json({ error: 'Video file not found', path: videoPath });
+    return res
+      .status(404)
+      .json({ error: 'Video file not found', path: videoPath });
   }
-  
+
   // Set appropriate headers for video streaming
   const stat = fs.statSync(videoPath);
   const fileSize = stat.size;
   const range = req.headers.range;
-  
+
   if (range) {
-    const parts = range.replace(/bytes=/, "").split("-");
+    const parts = range.replace(/bytes=/, '').split('-');
     const start = parseInt(parts[0], 10);
     const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-    const chunksize = (end - start) + 1;
+    const chunksize = end - start + 1;
     const file = fs.createReadStream(videoPath, { start, end });
     const head = {
       'Content-Range': `bytes ${start}-${end}/${fileSize}`,
@@ -574,30 +654,40 @@ const getVideoFile = (req, res) => {
 
 const generateThumbnail = (req, res) => {
   const { character, filename } = req.params;
-  
+
   // Decode URL-encoded filename
   const decodedFilename = decodeURIComponent(filename);
-  
+
   // Construct the path to the video file
   const videoPath = path.join(
-    'C:', 'Users', 'William', 'Documents', 'YouTube', 'Video', 'Arcane Footage', 'Video Footage 2',
-    character, decodedFilename
+    'C:',
+    'Users',
+    'William',
+    'Documents',
+    'YouTube',
+    'Video',
+    'Arcane Footage',
+    'Video Footage 2',
+    character,
+    decodedFilename
   );
-  
+
   // Check if file exists
   if (!fs.existsSync(videoPath)) {
-    return res.status(404).json({ error: 'Video file not found', path: videoPath });
+    return res
+      .status(404)
+      .json({ error: 'Video file not found', path: videoPath });
   }
-  
+
   // Note: No folder creation - using placeholder thumbnails only
-  
+
   // Create a simple placeholder image response
   const placeholderSvg = `<svg width="200" height="150" xmlns="http://www.w3.org/2000/svg">
     <rect width="200" height="150" fill="#e0e0e0"/>
     <text x="100" y="75" text-anchor="middle" font-family="Arial" font-size="16" fill="#666">🎬</text>
     <text x="100" y="95" text-anchor="middle" font-family="Arial" font-size="12" fill="#999">${filename}</text>
   </svg>`;
-  
+
   res.setHeader('Content-Type', 'image/svg+xml');
   res.send(placeholderSvg);
 };
@@ -605,19 +695,27 @@ const generateThumbnail = (req, res) => {
 const getClipDuration = async (req, res) => {
   try {
     const { character, filename } = req.params;
-    
+
     // Decode URL-encoded filename
     const decodedFilename = decodeURIComponent(filename);
-    
+
     // Construct video path
     const videoPath = path.join(
-      'C:', 'Users', 'William', 'Documents', 'YouTube', 'Video', 'Arcane Footage', 'Video Footage 2',
-      character, decodedFilename
+      'C:',
+      'Users',
+      'William',
+      'Documents',
+      'YouTube',
+      'Video',
+      'Arcane Footage',
+      'Video Footage 2',
+      character,
+      decodedFilename
     );
-    
+
     // Get actual duration using Windows PowerShell
     const duration = await getVideoDuration(videoPath);
-    
+
     res.json({ duration });
   } catch (error) {
     console.error('Error getting clip duration:', error);
@@ -628,9 +726,14 @@ const getClipDuration = async (req, res) => {
 const processPrerender = async (req, res) => {
   try {
     const { startFrame, endFrame, durationFrames, clips } = req.body;
-    
-    console.log('Processing prerender (streaming mode):', { startFrame, endFrame, durationFrames, clips });
-    
+
+    console.log('Processing prerender (streaming mode):', {
+      startFrame,
+      endFrame,
+      durationFrames,
+      clips,
+    });
+
     // Instead of creating files, just return the prerender data for streaming
     // The frontend will use the streamFrameDirect endpoint for individual frames
     res.json({
@@ -638,10 +741,10 @@ const processPrerender = async (req, res) => {
       prerenderId: `stream_${Date.now()}`,
       outputPath: null, // No file output in streaming mode
       frameCount: durationFrames,
-      message: 'Prerender ready for streaming - frames will be extracted on demand',
-      streamingMode: true
+      message:
+        'Prerender ready for streaming - frames will be extracted on demand',
+      streamingMode: true,
     });
-    
   } catch (error) {
     console.error('Error processing prerender:', error);
     res.status(500).json({ error: error.message });
@@ -653,22 +756,24 @@ const generateClipThumbnails = async (req, res) => {
   try {
     const { character, filename, startFrame, endFrame, clipId } = req.body;
     const decodedFilename = decodeURIComponent(filename);
-    
-    console.log('🎬 Clip thumbnail generation requested - DISABLED for on-demand mode');
-    
+
+    console.log(
+      '🎬 Clip thumbnail generation requested - DISABLED for on-demand mode'
+    );
+
     // INSTANT response - no background generation (Premiere Pro style)
     res.json({
       success: true,
-      message: 'Clip thumbnail generation disabled - using on-demand generation',
+      message:
+        'Clip thumbnail generation disabled - using on-demand generation',
       character,
       filename: decodedFilename,
       clipId,
       frameRange: { startFrame, endFrame },
-      onDemandMode: true
+      onDemandMode: true,
     });
-    
+
     // NO background processing - frames will be generated on-demand when scrubbing
-    
   } catch (error) {
     console.error('❌ Error in clip thumbnail generation:', error);
     res.status(500).json({ error: error.message });
@@ -679,33 +784,37 @@ const generateClipThumbnails = async (req, res) => {
 const streamFrameDirect = async (req, res) => {
   // Cleanup cache on-demand when requests are made (not in background)
   cleanupCache();
-  
+
   const startTime = performance.now();
   console.log('🎬 ENHANCED FRAME REQUEST:', {
     params: req.params,
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
   });
-  
+
   // Simple test - just return a basic response first
   if (req.params.frameNumber === 'test') {
     res.setHeader('Content-Type', 'text/plain');
     res.send('Frame endpoint is working');
     return;
   }
-  
+
   try {
     const { character, filename, frameNumber } = req.params;
-    
+
     // Decode URL-encoded filename
     const decodedFilename = decodeURIComponent(filename);
-    
+
     // Enhanced cache key with frame rate info
     const cacheKey = getCacheKey(character, decodedFilename, frameNumber);
     const cachedEntry = frameCache.get(cacheKey);
-    
+
     if (cachedEntry && isCacheValid(cachedEntry)) {
       const loadTime = performance.now() - startTime;
-      console.log('⚡ INSTANT CACHE HIT:', cacheKey, `${loadTime.toFixed(1)}ms`);
+      console.log(
+        '⚡ INSTANT CACHE HIT:',
+        cacheKey,
+        `${loadTime.toFixed(1)}ms`
+      );
       res.setHeader('Content-Type', 'image/png');
       res.setHeader('Cache-Control', 'public, max-age=300'); // 5 minutes only
       res.setHeader('X-Frame-Load-Time', loadTime.toFixed(1));
@@ -713,66 +822,97 @@ const streamFrameDirect = async (req, res) => {
       res.send(cachedEntry.data);
       return;
     }
-    
+
     // INSTANT FRAME SYSTEM - Check keyframe index first
     const validatedFrameNumber = Math.round(parseFloat(frameNumber));
     if (isNaN(validatedFrameNumber) || validatedFrameNumber < 0) {
       console.error('❌ Invalid frame number:', validatedFrameNumber);
       return res.status(400).json({ error: 'Invalid frame number' });
     }
-    
+
     // Check if we have a keyframe index for instant access
     const sequenceKey = `${character}/${decodedFilename}`;
     const sequence = previewSequences.get(sequenceKey);
-    
+
     if (sequence && sequence.instantAccess && sequence.keyframes) {
       // Find nearest keyframe for instant access
-      const keyframeResult = findNearestKeyframe(sequence, validatedFrameNumber);
-      
-      if (keyframeResult && keyframeResult.distance <= 30) { // Within 1 second at 30fps
+      const keyframeResult = findNearestKeyframe(
+        sequence,
+        validatedFrameNumber
+      );
+
+      if (keyframeResult && keyframeResult.distance <= 30) {
+        // Within 1 second at 30fps
         // eslint-disable-next-line no-console
         console.log('⚡ INSTANT KEYFRAME ACCESS:', {
           requestedFrame: validatedFrameNumber,
           keyframeFrame: keyframeResult.frame,
           distance: keyframeResult.distance,
-          isExact: keyframeResult.isExact
+          isExact: keyframeResult.isExact,
         });
-        
+
         // Generate the keyframe instantly (should be cached)
-        const keyframeCacheKey = getCacheKey(character, decodedFilename, keyframeResult.frame);
+        const keyframeCacheKey = getCacheKey(
+          character,
+          decodedFilename,
+          keyframeResult.frame
+        );
         const keyframeEntry = frameCache.get(keyframeCacheKey);
-        
+
         if (keyframeEntry && isCacheValid(keyframeEntry)) {
           const instantTime = performance.now() - startTime;
           // eslint-disable-next-line no-console
-          console.log('🚀 INSTANT FRAME SERVED:', `${instantTime.toFixed(1)}ms`);
-          
+          console.log(
+            '🚀 INSTANT FRAME SERVED:',
+            `${instantTime.toFixed(1)}ms`
+          );
+
           res.setHeader('Content-Type', 'image/png');
           res.setHeader('Cache-Control', 'public, max-age=3600');
           res.setHeader('X-Frame-Load-Time', instantTime.toFixed(1));
           res.setHeader('X-Frame-Source', 'keyframe');
           res.setHeader('X-Frame-Number', validatedFrameNumber.toString());
           res.setHeader('X-Keyframe-Frame', keyframeResult.frame.toString());
-          res.setHeader('X-Keyframe-Distance', keyframeResult.distance.toString());
+          res.setHeader(
+            'X-Keyframe-Distance',
+            keyframeResult.distance.toString()
+          );
           res.send(keyframeEntry.data);
           return;
         }
       }
     }
-    
+
     // Fallback to on-demand generation if no keyframe available
     // eslint-disable-next-line no-console
     console.log('⚠️ No keyframe available, generating on-demand');
-    
+
     // Construct video path
     const videoPath = path.join(
-      'C:', 'Users', 'William', 'Documents', 'YouTube', 'Video', 'Arcane Footage', 'Video Footage 2',
-      character, decodedFilename
+      'C:',
+      'Users',
+      'William',
+      'Documents',
+      'YouTube',
+      'Video',
+      'Arcane Footage',
+      'Video Footage 2',
+      character,
+      decodedFilename
     );
 
     if (!fs.existsSync(videoPath)) {
-      console.error('❌ Video file not found:', { path: videoPath, character, filename: decodedFilename });
-      return res.status(404).json({ error: 'Video file not found', path: videoPath, character, filename: decodedFilename });
+      console.error('❌ Video file not found:', {
+        path: videoPath,
+        character,
+        filename: decodedFilename,
+      });
+      return res.status(404).json({
+        error: 'Video file not found',
+        path: videoPath,
+        character,
+        filename: decodedFilename,
+      });
     }
 
     try {
@@ -785,10 +925,14 @@ const streamFrameDirect = async (req, res) => {
         frameNumber: validatedFrameNumber,
         videoPath,
         timestamp: new Date().toISOString(),
-        isUrgent: true
+        isUrgent: true,
       });
-      
-      const thumbnailData = await generatePremiereStyleThumbnail(videoPath, validatedFrameNumber, true); // isUrgent = true
+
+      const thumbnailData = await generatePremiereStyleThumbnail(
+        videoPath,
+        validatedFrameNumber,
+        true
+      ); // isUrgent = true
       const extractionTime = performance.now() - extractionStartTime;
       if (thumbnailData) {
         // Cache the thumbnail with enhanced metadata
@@ -797,14 +941,19 @@ const streamFrameDirect = async (req, res) => {
           timestamp: Date.now(),
           frameNumber: validatedFrameNumber,
           extractionTime: extractionTime,
-          size: thumbnailData.length
+          size: thumbnailData.length,
         });
-        
+
         const totalTime = performance.now() - startTime;
         // eslint-disable-next-line no-console
-        console.log('✅ Thumbnail generated and cached:', cacheKey, 
-                   `Extraction: ${extractionTime.toFixed(1)}ms, Total: ${totalTime.toFixed(1)}ms`);
-        
+        console.log(
+          '✅ Thumbnail generated and cached:',
+          cacheKey,
+          `Extraction: ${extractionTime.toFixed(
+            1
+          )}ms, Total: ${totalTime.toFixed(1)}ms`
+        );
+
         res.setHeader('Content-Type', 'image/png');
         res.setHeader('Cache-Control', 'public, max-age=300'); // 5 minutes only
         res.setHeader('X-Frame-Load-Time', totalTime.toFixed(1));
@@ -818,19 +967,19 @@ const streamFrameDirect = async (req, res) => {
       // eslint-disable-next-line no-console
       console.error('❌ Error generating thumbnail on demand:', error);
     }
-    
+
     // Fallback to placeholder if generation fails
     console.log('⚠️ Thumbnail generation failed, returning placeholder');
-    
+
     // Create a proper 1x1 black pixel JPEG (base64 encoded)
-    const placeholderBase64 = '/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/2wBDAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAX/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwA/8A';
+    const placeholderBase64 =
+      '/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/2wBDAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAX/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwA/8A';
     const placeholder = Buffer.from(placeholderBase64, 'base64');
-    
+
     res.setHeader('Content-Type', 'image/jpeg');
-      res.setHeader('Cache-Control', 'public, max-age=300'); // 5 minutes only
+    res.setHeader('Cache-Control', 'public, max-age=300'); // 5 minutes only
     res.send(placeholder);
     return;
-
   } catch (error) {
     console.error('❌ Error streaming frame:', error);
     res.status(500).json({ error: error.message });
@@ -841,55 +990,72 @@ const streamFrameDirect = async (req, res) => {
 const getVideoInfo = async (character, filename) => {
   try {
     const decodedFilename = decodeURIComponent(filename);
-    
-    console.log('🎬 Getting video info:', { character, filename: decodedFilename });
-    
+
+    console.log('🎬 Getting video info:', {
+      character,
+      filename: decodedFilename,
+    });
+
     // Construct video path
     const videoPath = path.join(
-      'C:', 'Users', 'William', 'Documents', 'YouTube', 'Video', 'Arcane Footage', 'Video Footage 2',
-      character, decodedFilename
+      'C:',
+      'Users',
+      'William',
+      'Documents',
+      'YouTube',
+      'Video',
+      'Arcane Footage',
+      'Video Footage 2',
+      character,
+      decodedFilename
     );
-    
+
     if (!fs.existsSync(videoPath)) {
       throw new Error('Video file not found');
     }
-    
+
     // Use ffprobe to get video metadata
     const { spawn } = require('child_process');
     const ffprobe = spawn('ffprobe', [
-      '-v', 'quiet',
-      '-print_format', 'json',
+      '-v',
+      'quiet',
+      '-print_format',
+      'json',
       '-show_format',
       '-show_streams',
-      videoPath
+      videoPath,
     ]);
-    
+
     return new Promise((resolve, reject) => {
       let probeOutput = '';
-      ffprobe.stdout.on('data', (data) => {
+      ffprobe.stdout.on('data', data => {
         probeOutput += data.toString();
       });
-      
-      ffprobe.on('close', (code) => {
+
+      ffprobe.on('close', code => {
         if (code === 0) {
           try {
             const videoInfo = JSON.parse(probeOutput);
-            const videoStream = videoInfo.streams.find(s => s.codec_type === 'video');
-            
+            const videoStream = videoInfo.streams.find(
+              s => s.codec_type === 'video'
+            );
+
             if (videoStream) {
               // Parse frame rate (could be in format "30/1" or "30")
               let frameRate = 24; // Default
               if (videoStream.r_frame_rate) {
                 const [num, den] = videoStream.r_frame_rate.split('/');
-                frameRate = den ? parseFloat(num) / parseFloat(den) : parseFloat(num);
+                frameRate = den
+                  ? parseFloat(num) / parseFloat(den)
+                  : parseFloat(num);
               }
-              
+
               resolve({
                 frameRate: Math.round(frameRate), // Ensure integer frame rate
                 duration: parseFloat(videoStream.duration),
                 width: videoStream.width,
                 height: videoStream.height,
-                codec: videoStream.codec_name
+                codec: videoStream.codec_name,
               });
             } else {
               reject(new Error('No video stream found'));
@@ -903,7 +1069,6 @@ const getVideoInfo = async (character, filename) => {
         }
       });
     });
-    
   } catch (error) {
     console.error('Error getting video info:', error);
     throw error;
@@ -927,41 +1092,52 @@ const preExtractFrames = async (req, res) => {
   try {
     const { character, filename } = req.params;
     const decodedFilename = decodeURIComponent(filename);
-    
-    console.log('🎬 Pre-extraction request:', { character, filename: decodedFilename });
-    
+
+    console.log('🎬 Pre-extraction request:', {
+      character,
+      filename: decodedFilename,
+    });
+
     // Construct video path
     const videoPath = path.join(
-      'C:', 'Users', 'William', 'Documents', 'YouTube', 'Video', 'Arcane Footage', 'Video Footage 2',
-      character, decodedFilename
+      'C:',
+      'Users',
+      'William',
+      'Documents',
+      'YouTube',
+      'Video',
+      'Arcane Footage',
+      'Video Footage 2',
+      character,
+      decodedFilename
     );
-    
+
     // Check if video file exists
     if (!fs.existsSync(videoPath)) {
       return res.status(404).json({ error: 'Video file not found' });
     }
-    
+
     // Get video info
     const videoInfo = await getVideoInfo(character, decodedFilename);
     if (!videoInfo) {
       return res.status(500).json({ error: 'Could not get video info' });
     }
-    
+
     // Pre-extract frames
     const sequence = await preExtractTimelineFrames(
-      character, 
-      decodedFilename, 
-      videoPath, 
-      videoInfo.frameRate, 
+      character,
+      decodedFilename,
+      videoPath,
+      videoInfo.frameRate,
       videoInfo.duration
     );
-    
+
     if (sequence) {
-      res.json({ 
-        success: true, 
+      res.json({
+        success: true,
         framesExtracted: sequence.frames.length,
         duration: sequence.duration,
-        frameRate: sequence.frameRate
+        frameRate: sequence.frameRate,
       });
     } else {
       res.status(500).json({ error: 'Failed to pre-extract frames' });
@@ -978,7 +1154,9 @@ const matchScript = (req, res) => {
   const { sentences, clips } = req.body;
 
   if (!Array.isArray(sentences) || sentences.length === 0) {
-    return res.status(400).json({ error: 'sentences must be a non-empty array' });
+    return res
+      .status(400)
+      .json({ error: 'sentences must be a non-empty array' });
   }
   if (!Array.isArray(clips) || clips.length === 0) {
     return res.status(400).json({ error: 'clips must be a non-empty array' });
@@ -988,18 +1166,26 @@ const matchScript = (req, res) => {
 
   // Try 'python' on Windows, 'python3' on Unix
   const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
-  const child = spawn(pythonCmd, [matcherPath], { stdio: ['pipe', 'pipe', 'pipe'] });
+  const child = spawn(pythonCmd, [matcherPath], {
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
 
   let stdout = '';
   let stderr = '';
 
-  child.stdout.on('data', (data) => { stdout += data.toString(); });
-  child.stderr.on('data', (data) => { stderr += data.toString(); });
+  child.stdout.on('data', data => {
+    stdout += data.toString();
+  });
+  child.stderr.on('data', data => {
+    stderr += data.toString();
+  });
 
-  child.on('close', (code) => {
+  child.on('close', code => {
     if (code !== 0) {
       console.error('❌ matcher.py exited with code', code, ':', stderr);
-      return res.status(500).json({ error: 'Matching failed', details: stderr });
+      return res
+        .status(500)
+        .json({ error: 'Matching failed', details: stderr });
     }
     try {
       const result = JSON.parse(stdout);
@@ -1010,7 +1196,7 @@ const matchScript = (req, res) => {
     }
   });
 
-  child.on('error', (err) => {
+  child.on('error', err => {
     console.error('❌ Failed to spawn matcher.py:', err.message);
     res.status(500).json({ error: `Could not run Python: ${err.message}` });
   });
@@ -1030,5 +1216,5 @@ module.exports = {
   getVideoInfoRoute,
   preExtractFrames,
   generateClipThumbnails,
-  matchScript
+  matchScript,
 };

@@ -1,6 +1,18 @@
 const express = require('express');
 const router = express.Router();
-const { getAllClips, getVideoFile, generateThumbnail, getClipDuration, processPrerender, streamFrameDirect, getVideoInfo, getVideoInfoRoute, preExtractFrames, generateClipThumbnails, matchScript } = require('../controllers/fileController');
+const {
+  getAllClips,
+  getVideoFile,
+  generateThumbnail,
+  getClipDuration,
+  processPrerender,
+  streamFrameDirect,
+  getVideoInfo,
+  getVideoInfoRoute,
+  preExtractFrames,
+  generateClipThumbnails,
+  matchScript,
+} = require('../controllers/fileController');
 
 // GET /api/files
 router.get('/files', getAllClips);
@@ -20,7 +32,10 @@ router.post('/prerender', processPrerender);
 // Note: Cached frame extraction routes removed - now using direct streaming
 
 // GET /api/frame-direct/:character/:filename/:frameNumber - Stream frame directly from video
-router.get('/frame-direct/:character/:filename/:frameNumber', streamFrameDirect);
+router.get(
+  '/frame-direct/:character/:filename/:frameNumber',
+  streamFrameDirect
+);
 
 // GET /api/video-info/:character/:filename - Get video metadata including frame rate
 router.get('/video-info/:character/:filename', getVideoInfoRoute);
@@ -36,12 +51,18 @@ router.post('/match-script', matchScript);
 
 // Test endpoint
 router.get('/test', (req, res) => {
-  res.json({ message: 'Backend is working', timestamp: new Date().toISOString() });
+  res.json({
+    message: 'Backend is working',
+    timestamp: new Date().toISOString(),
+  });
 });
 
 // Test prerender endpoint
 router.get('/prerender-test', (req, res) => {
-  res.json({ message: 'Prerender endpoint is accessible', timestamp: new Date().toISOString() });
+  res.json({
+    message: 'Prerender endpoint is accessible',
+    timestamp: new Date().toISOString(),
+  });
 });
 
 module.exports = router;

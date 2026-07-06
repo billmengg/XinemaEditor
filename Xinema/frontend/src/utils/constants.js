@@ -7,5 +7,3 @@ export const TARGET_ASPECT_RATIO = TARGET_WIDTH / TARGET_HEIGHT; // 1.5:1
 
 // Aspect ratio string for CSS
 export const TARGET_ASPECT_RATIO_CSS = `${TARGET_WIDTH}/${TARGET_HEIGHT}`;
-
-

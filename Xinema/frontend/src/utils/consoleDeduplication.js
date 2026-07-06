@@ -12,15 +12,15 @@ class ConsoleDeduplication {
     const lastMessage = this.lastMessages.get(key);
     const lastTime = this.messageCounts.get(key + '_time') || 0;
     const now = Date.now();
-    
+
     // For messages with changing data (like frame numbers), only show once every 2 seconds
     const timeThreshold = 2000;
-    
-    if (lastMessage !== message || (now - lastTime) > timeThreshold) {
+
+    if (lastMessage !== message || now - lastTime > timeThreshold) {
       this.lastMessages.set(key, message);
       this.messageCounts.set(key, 1);
       this.messageCounts.set(key + '_time', now);
-      
+
       if (data !== null) {
         console.log(message, data);
       } else {
@@ -39,7 +39,7 @@ class ConsoleDeduplication {
     if (lastMessage !== message) {
       this.lastMessages.set(key, message);
       this.messageCounts.set(key, 1);
-      
+
       if (data !== null) {
         console.log(message, data);
       } else {
@@ -49,7 +49,7 @@ class ConsoleDeduplication {
       // Increment count and show it
       const count = this.messageCounts.get(key) || 0;
       this.messageCounts.set(key, count + 1);
-      
+
       if (count > 0 && count % 10 === 0) {
         console.log(`${message} (${count + 1} times)`);
       }

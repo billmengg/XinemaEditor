@@ -11,16 +11,18 @@ export default function ClipPreview({ clip }) {
 
   if (!clip) {
     return (
-      <div style={{ 
-        height: "100%", 
-        display: "flex", 
-        alignItems: "center", 
-        justifyContent: "center",
-        color: "#666", 
-        fontSize: "16px",
-        textAlign: "center",
-        padding: "20px"
-      }}>
+      <div
+        style={{
+          height: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: '#666',
+          fontSize: '16px',
+          textAlign: 'center',
+          padding: '20px',
+        }}
+      >
         Select a clip to preview
       </div>
     );
@@ -33,7 +35,7 @@ export default function ClipPreview({ clip }) {
     // Video loaded successfully
   };
 
-  const handleVideoError = (e) => {
+  const handleVideoError = e => {
     // Video error occurred
     console.error('❌ Video error:', e);
     console.error('❌ Video src:', e.target.src);
@@ -44,38 +46,42 @@ export default function ClipPreview({ clip }) {
   };
 
   return (
-    <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       {/* Filename Header */}
-      <div style={{ 
-        marginBottom: "12px", 
-        fontSize: "14px", 
-        fontWeight: "600",
-        color: "#333",
-        textAlign: "center"
-      }}>
+      <div
+        style={{
+          marginBottom: '12px',
+          fontSize: '14px',
+          fontWeight: '600',
+          color: '#333',
+          textAlign: 'center',
+        }}
+      >
         {clip.filename}
       </div>
-      
+
       {/* Video Preview */}
-      <div style={{ 
-        flex: 1,
-        background: "#000", 
-        borderRadius: "6px",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        color: "#fff",
-        fontSize: "16px",
-        position: "relative",
-        overflow: "hidden",
-        minHeight: "200px"
-      }}>
+      <div
+        style={{
+          flex: 1,
+          background: '#000',
+          borderRadius: '6px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: '#fff',
+          fontSize: '16px',
+          position: 'relative',
+          overflow: 'hidden',
+          minHeight: '200px',
+        }}
+      >
         <video
           src={videoPath}
           style={{
-            width: "100%",
-            height: "100%",
-            objectFit: "contain"
+            width: '100%',
+            height: '100%',
+            objectFit: 'contain',
           }}
           controls
           autoPlay

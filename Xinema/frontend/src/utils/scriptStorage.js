@@ -1,8 +1,10 @@
 const STORAGE_KEY = 'xinema_scripts';
 
 function generateId() {
-  return (window.crypto?.randomUUID?.()) ||
-    `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  return (
+    window.crypto?.randomUUID?.() ||
+    `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+  );
 }
 
 export function getAllScripts() {

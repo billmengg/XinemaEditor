@@ -1,15 +1,15 @@
-import React, { useEffect, useState } from "react";
-import ClipPreview from "../components/ClipPreview";
+import React, { useEffect, useState } from 'react';
+import ClipPreview from '../components/ClipPreview';
 
 function FileNavTab() {
   const [clips, setClips] = useState([]);
   const [selectedClip, setSelectedClip] = useState(null);
 
   useEffect(() => {
-    fetch("http://localhost:5000/api/files")
-      .then((res) => res.json())
-      .then((data) => setClips(data))
-      .catch((err) => {
+    fetch('http://localhost:5000/api/files')
+      .then(res => res.json())
+      .then(data => setClips(data))
+      .catch(err => {
         // Error fetching clips
       });
   }, []);
@@ -20,7 +20,7 @@ function FileNavTab() {
 
       {/* Quick inline clip list */}
       <ul>
-        {clips.map((clip) => (
+        {clips.map(clip => (
           <li key={clip.id} onClick={() => setSelectedClip(clip)}>
             {clip.filename} — {clip.character} — {clip.id}
           </li>

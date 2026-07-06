@@ -3,10 +3,6 @@
   "version": "0.1.0",
   "description": "AI-powered video essay clip matching tool",
   "private": true,
-  "workspaces": [
-    "Xinema/backend",
-    "Xinema/frontend"
-  ],
   "scripts": {
     "install:all": "npm install && cd Xinema/backend && npm install && cd ../frontend && npm install",
     "dev": "concurrently \"cd Xinema/backend && npm run dev\" \"cd Xinema/frontend && npm start\"",

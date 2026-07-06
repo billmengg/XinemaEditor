@@ -33,5 +33,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`   GET  /api/frame/:character/:filename/:frameNumber`);
   console.log(`   GET  /api/frame-direct/:character/:filename/:frameNumber`);
   console.log(`   GET  /api/test`);
-  console.log(`\n💡 To access from another computer, use: http://<your-ip>:${PORT}`);
+  console.log(
+    `\n💡 To access from another computer, use: http://<your-ip>:${PORT}`
+  );
 });
