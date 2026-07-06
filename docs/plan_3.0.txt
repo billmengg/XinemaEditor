@@ -1,0 +1,330 @@
+# Plan 3.0: Script Management & AI-Powered Video Generation
+
+## Overview
+Add a full script management system to Xinema. Users can write and save scripts in the Script panel,
+browse saved scripts in the Media Library, and generate a timeline sequence from a script by
+automatically matching each sentence to its best-fitting video clip.
+
+---
+
+## Goals
+
+- Script Input Panel: Write/edit scripts, auto-parse into sentences, save locally
+- Scripts Tab in Media Library: Browse all saved scripts alongside imported media
+- Per-Script Context Menu: Options to generate video, edit, duplicate, or delete
+- Generate Video: Match each sentence to a clip, place them sequentially on the timeline
+- Guard: Only generate if the timeline is empty or already linked to this script
+
+---
+
+## Feature Breakdown
+
+### Feature 1: Script Input Panel (Script Tab)
+
+**Current state:** The Script tab exists in App.js as a placeholder tab.
+
+**New behaviour:**
+- Show a text area where the user types or pastes their script
+- A script name input field at the top
+- "Save Script" button — persists the script locally
+- "Clear" button — resets the editor
+- Auto-parse script into sentences (split on `.`, `?`, `!` with trim)
+- Show a live sentence count below the editor
+- If a script was loaded from the Scripts tab for editing, populate the editor with its content
+
+**Storage:**
+- Use `localStorage` key `xinema_scripts` as a JSON array of script objects
+- On desktop (Electron), also offer to write to a `.xinema-script.json` file via electronAPI
+- Script object shape:
+  ```json
+  {
+    "id": "uuid-v4",
+    "name": "My Essay Title",
+    "content": "Full raw text...",
+    "sentences": ["Sentence one.", "Sentence two."],
+    "createdAt": "ISO-timestamp",
+    "updatedAt": "ISO-timestamp",
+    "linkedTimelineId": null
+  }
+  ```
+
+**UI layout (inside Script tab):**
+```
+[ Script Name input field                    ]
+[ Large textarea for script content          ]
+[ Sentence count: 24 sentences               ]
+[ Save Script ]  [ Clear ]
+```
+
+---
+
+### Feature 2: Scripts Tab in Media Library (ClipList.js)
+
+**Current tabs:** "Clips" (backend) | "Imported Media"
+
+**New tab order:** "Clips" | "Imported Media" | "Scripts"
+
+**Scripts tab contents:**
+- List of saved scripts, each shown as a card:
+  ```
+  [ Script Name          ]  [ ... menu ]
+    24 sentences · Saved 2h ago
+  ```
+- Clicking the card body expands an inline sentence list or switches to the Script panel with that script loaded
+- The `...` menu on each card contains:
+  - Generate Video
+  - Edit (load into Script panel)
+  - Duplicate
+  - Delete
+
+**Empty state:** "No scripts saved. Write one in the Script tab."
+
+**Implementation:** Add a third tab to ClipList.js. Script list state is loaded from localStorage on
+mount and refreshed via a custom window event (`xinema:scriptsUpdated`) dispatched whenever a script
+is saved or deleted.
+
+---
+
+### Feature 3: Per-Script Context Menu
+
+The `...` button on each script card opens an inline dropdown:
+
+| Option         | Behaviour |
+|----------------|-----------|
+| Generate Video | Run the matching pipeline → populate timeline |
+| Edit           | Load script into Script panel and switch to Script tab |
+| Duplicate      | Copy script with name "Copy of …", new id, current timestamp |
+| Delete         | Confirm dialog → remove from localStorage, dispatch `xinema:scriptsUpdated` |
+
+---
+
+### Feature 4: Generate Video
+
+**Trigger:** User clicks "Generate Video" from the script card menu.
+
+**Pre-flight guard:**
+- Timeline is **empty** → proceed immediately
+- Timeline is **linked to this script** (all clips have `scriptId === script.id`) → ask "Replace existing generation?" and proceed on confirm
+- Timeline has **unrelated clips** → block with warning: "Timeline already has clips. Clear it first or save your project before generating."
+
+**Pipeline:**
+```
+1. Parse script sentences (stored on the script object)
+2. Fetch all available clips from GET /api/files
+3. Call POST /api/match-script with { sentences, clips }
+4. Backend returns ranked matches: [{ sentence, clip, score }]
+5. Clear timeline (if confirmed) and place each matched clip
+   sequentially on Track 1 starting at frame 0, no gaps
+6. Tag each clip with scriptId and sentenceIndex
+7. Scroll timeline to frame 0, show toast
+```
+
+**Clip placement rules:**
+- Track 1 only
+- Full clip duration (no crop applied)
+- End of clip N = start of clip N+1
+- Sentence with no confident match (score < 0.1) → insert 3-second placeholder clip
+- Toast on completion: "Generated X clips from Y sentences"
+
+---
+
+### Feature 5: Backend — Match Script Endpoint
+
+**New route:** `POST /api/match-script`
+
+**Request body:**
+```json
+{
+  "sentences": ["Sentence one.", "Sentence two."],
+  "clips": [{ "character": "Jinx", "filename": "clip01.mp4", "description": "...", "tags": "..." }]
+}
+```
+
+**Response:**
+```json
+{
+  "matches": [
+    {
+      "sentenceIndex": 0,
+      "sentence": "Sentence one.",
+      "character": "Jinx",
+      "filename": "clip01.mp4",
+      "score": 0.82
+    }
+  ]
+}
+```
+
+**Matching algorithm (JS, no external dependencies):**
+
+Jaccard keyword overlap:
+1. Tokenize sentence and clip description+tags: lowercase, strip punctuation, remove stopwords
+2. Score = overlapping tokens / max(sentence tokens, clip tokens)
+3. Return highest-scoring clip per sentence
+4. Score < 0.1 → flag as no match
+
+**Future upgrade path:** This route's algorithm can be swapped for the Python sentence-embedding
+model (all-MiniLM-L6-v2) without any frontend changes — just update the controller function.
+
+---
+
+## Data Flow
+
+```
+User writes script in Script Tab
+    ↓
+Clicks "Save Script"
+    ↓
+Stored in localStorage → dispatches xinema:scriptsUpdated
+    ↓
+Scripts tab refreshes, shows new card
+    ↓
+User clicks "..." → "Generate Video"
+    ↓
+Guard check: empty / linked / foreign clips?
+    ↓ (proceed)
+Fetch /api/files
+    ↓
+POST /api/match-script { sentences, clips }
+    ↓
+Backend returns matches
+    ↓
+Clips placed sequentially on Track 1, tagged with scriptId + sentenceIndex
+    ↓
+Timeline scrolls to 0, toast shown
+```
+
+---
+
+## Implementation Phases
+
+### Phase 1: Script Storage Utility
+Create `frontend/src/utils/scriptStorage.js`:
+- `getAllScripts()` — read from localStorage
+- `saveScript(script)` — upsert by id, dispatch event
+- `deleteScript(id)` — filter out, dispatch event
+- `duplicateScript(id)` — clone with new id/name/timestamps
+
+### Phase 2: Script Panel (App.js)
+Update `activeTab === 'script'` render:
+- State: `scriptName`, `scriptContent`, `editingScriptId`
+- `handleSaveScript()` — parse sentences, build object, call `saveScript()`
+- `handleLoadScriptForEdit(script)` — populate editor, switch to script tab
+- Expose `window.loadScriptForEdit` for ClipList to call
+
+### Phase 3: Scripts Tab (ClipList.js)
+- Add `'scripts'` tab
+- Load scripts from localStorage on mount, listen for `xinema:scriptsUpdated`
+- Render script cards with name, sentence count, timestamp, `...` menu
+- Wire menu: generate via `window.generateVideoFromScript`, edit via `window.loadScriptForEdit`
+
+### Phase 4: Backend Endpoint
+- Add `matchScript(req, res)` to `fileController.js` with Jaccard implementation
+- Add `router.post('/match-script', matchScript)` to `fileRoutes.js`
+
+### Phase 5: Generate Video Logic (App.js)
+- Add `generateVideoFromScript(script)` — guard, fetch, match, place clips
+- Expose as `window.generateVideoFromScript`
+- Reuse existing clip object shape, append `scriptId`, `sentenceIndex`, `generatedMatch: true`
+
+---
+
+## File Changes Summary
+
+| File | Change |
+|------|--------|
+| `frontend/src/utils/scriptStorage.js` | New — script CRUD helpers |
+| `frontend/src/components/App.js` | Script tab UI, expose helpers, generate logic |
+| `frontend/src/components/ClipList.js` | Add Scripts tab, cards, context menu |
+| `backend/controllers/fileController.js` | Add `matchScript` function |
+| `backend/routes/fileRoutes.js` | Add `POST /api/match-script` |
+
+No new npm dependencies required.
+
+---
+
+## Clip Object Extension
+
+```javascript
+{
+  // ... all existing clip fields ...
+  scriptId: "uuid-of-script",
+  sentenceIndex: 3,
+  generatedMatch: true
+}
+```
+
+---
+
+## UI Details
+
+### Script Card
+```
+┌────────────────────────────────────────┐
+│  My Video Essay                    [⋯] │
+│  24 sentences · 2 hours ago            │
+└────────────────────────────────────────┘
+```
+
+### Guard Modal — unrelated clips
+```
+┌─ Generate Video ─────────────────────┐
+│ The timeline has existing clips not  │
+│ linked to this script.               │
+│ Clear the timeline first.       [OK] │
+└──────────────────────────────────────┘
+```
+
+### Guard Modal — linked clips
+```
+┌─ Generate Video ─────────────────────┐
+│ Replace existing generation for      │
+│ "My Video Essay"?                    │
+│ [Cancel]       [Replace & Generate]  │
+└──────────────────────────────────────┘
+```
+
+### Toast
+```
+  ✓ Generated 24 clips from 24 sentences
+```
+
+---
+
+## Edge Cases
+
+| Scenario | Handling |
+|----------|----------|
+| No clip match (score < 0.1) | Grey placeholder clip, `isPlaceholder: true` |
+| Script with 0 sentences | "Save Script" disabled |
+| Backend unreachable | Error toast: "Could not load clips. Is the backend running?" |
+| 100+ sentence script | Loading spinner on generate button; JS matching is fast enough |
+| Duplicate script names | Allowed — keyed by id |
+
+---
+
+## Success Criteria
+
+- [ ] Write, name, and save a script — persists across page refreshes
+- [ ] Saved scripts appear in Scripts tab of Media Library
+- [ ] Edit and Delete work correctly
+- [ ] "Generate Video" places clips on timeline in sentence order with no gaps
+- [ ] Guard prevents accidental overwrite of unrelated timeline work
+- [ ] Placeholder clips appear for unmatched sentences
+
+---
+
+## Future Enhancements
+
+- Upgrade matching to Python sentence-embeddings (all-MiniLM-L6-v2) via backend child process
+- Show per-sentence match confidence when a generated clip is selected
+- Manual override: swap matched clip for a sentence without full re-generation
+- Export script + matches as `.xinema-script.json`
+- Track 2/3 support: auto-place B-roll from a second pass
+
+---
+
+**Status**: Ready for Implementation
+**Priority**: High (Core product differentiator)
+**Dependencies**: Existing clip library (clips.csv), existing Timeline clip placement logic
+**Next Phase**: Plan 3.1 — AI matching upgrade (Python embeddings via backend)

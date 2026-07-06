@@ -3,6 +3,8 @@ import ClipList from './components/ClipList';
 import ClipPreview from './components/ClipPreview';
 import TimelinePreview from './components/TimelinePreview';
 import Timeline from './components/Timeline';
+import { getAllScripts, saveScript, parseSentences, generateId } from './utils/scriptStorage';
+import { apiEndpoints } from './config/api';
 
 function App() {
   const [activeTab, setActiveTab] = useState('editor');
@@ -77,9 +79,15 @@ function App() {
 
   const tabs = [
     { id: 'editor', label: 'Editor', component: EditorLayout },
-    { id: 'script', label: 'Script Input', component: () => <div style={{ padding: '20px' }}>Script Input - Coming Soon</div> },
+    { id: 'script', label: 'Script Input', component: () => <ScriptPanel setActiveTab={setActiveTab} /> },
     { id: 'export', label: 'Export', component: () => <div style={{ padding: '20px' }}>Export - Coming Soon</div> }
   ];
+
+  // Expose tab switcher for ClipList "Edit" action
+  useEffect(() => {
+    window.setMainTab = setActiveTab;
+    return () => { window.setMainTab = undefined; };
+  }, [setActiveTab]);
 
   return (
     <div style={{ 
@@ -131,7 +139,7 @@ function App() {
             padding: '4px 0',
             zIndex: 1000
           }}>
-            <div style={{ padding: '6px 20px', cursor: 'pointer', ':hover': { background: '#f0f0f0' } }} onMouseEnter={(e) => e.target.style.background = '#f0f0f0'} onMouseLeave={(e) => e.target.style.background = 'white'} onClick={() => { console.log('New Project'); setOpenMenu(null); }}>New Project...</div>
+            <div style={{ padding: '6px 20px', cursor: 'pointer', ':hover': { background: '#f0f0f0' } }} onMouseEnter={(e) => e.target.style.background = '#f0f0f0'} onMouseLeave={(e) => e.target.style.background = 'white'} onClick={() => { if (window.newProject) { window.newProject(); } setOpenMenu(null); }}>New Project...</div>
             <div style={{ padding: '6px 20px', cursor: 'pointer' }} onMouseEnter={(e) => e.target.style.background = '#f0f0f0'} onMouseLeave={(e) => e.target.style.background = 'white'} onClick={() => { if (window.openProject) { window.openProject(); } else { console.warn('Open Project unavailable'); } setOpenMenu(null); }}>Open Project...</div>
             <div style={{ padding: '6px 20px', cursor: 'pointer' }} onMouseEnter={(e) => e.target.style.background = '#f0f0f0'} onMouseLeave={(e) => e.target.style.background = 'white'} onClick={() => { if (window.saveProject) { window.saveProject(); } else { console.warn('Save Project unavailable'); } setOpenMenu(null); }}>Save Project</div>
             <div style={{ padding: '6px 20px', cursor: 'pointer' }} onMouseEnter={(e) => e.target.style.background = '#f0f0f0'} onMouseLeave={(e) => e.target.style.background = 'white'} onClick={() => { if (window.saveProjectAs) { window.saveProjectAs(); } else { console.warn('Save As unavailable'); } setOpenMenu(null); }}>Save Project As...</div>
@@ -356,6 +364,7 @@ function EditorLayout() {
          const [editHistory, setEditHistory] = React.useState([]); // Edit history log for display (each entry has enabled flag)
          const [operationHistory, setOperationHistory] = React.useState([]); // Operation history for undo
          const [importedMedia, setImportedMedia] = React.useState([]); // Imported media files
+         const [generateToast, setGenerateToast] = React.useState(null); // Toast for generate video
          const isUndoingRef = React.useRef(false); // Flag to prevent tracking undo operations
          const prevTimelineClipsRef = React.useRef(timelineClips);
          const historyContainerRef = React.useRef(null); // Ref for history scroll container
@@ -987,12 +996,21 @@ function EditorLayout() {
       }
     };
 
+    window.newProject = () => {
+      if (timelineClips.length > 0) {
+        if (!window.confirm('Clear the timeline and start a new project?')) return;
+      }
+      isUndoingRef.current = true;
+      setTimelineClips([]);
+      setTimeout(() => { isUndoingRef.current = false; }, 100);
+    };
     window.getProjectJson = buildProjectJson;
     window.downloadProjectAs = downloadProjectAs;
     window.openProject = openProject;
     window.saveProject = saveProject;
     window.saveProjectAs = saveProjectAs;
     return () => {
+      window.newProject = undefined;
       window.getProjectJson = undefined;
       window.downloadProjectAs = undefined;
       window.openProject = undefined;
@@ -1244,6 +1262,181 @@ function EditorLayout() {
       window.setTimelineClipsUndo = undefined;
     };
   }, [handleUndo, handleRedo, editHistory, setTimelineClips]);
+
+  // ─── Generate Video from Script ────────────────────────────────────────────
+  const generateVideoFromScript = React.useCallback(async (script, { force = false } = {}) => {
+    // Guard: check timeline state
+    const currentClips = timelineClips;
+    const isLinked = currentClips.length > 0 &&
+      currentClips.every(c => c.scriptId === script.id);
+    const hasForeignClips = currentClips.length > 0 && !isLinked;
+
+    if (hasForeignClips) {
+      alert('The timeline has clips not linked to this script.\nClear the timeline first or save your project before generating.');
+      return;
+    }
+    if (isLinked && !force) {
+      if (!window.confirm(`Replace existing generation for "${script.name}"?`)) return;
+    }
+
+    try {
+      // 1. Fetch all clips from backend
+      const clipsRes = await fetch(apiEndpoints.files());
+      if (!clipsRes.ok) throw new Error('Could not load clips. Is the backend running?');
+      const allClips = await clipsRes.json(); // flat array
+
+      // 2. Match sentences to clips via Python matcher
+      const matchRes = await fetch(apiEndpoints.matchScript(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sentences: script.sentences, clips: allClips })
+      });
+      if (!matchRes.ok) throw new Error('Matching failed. Check the backend console.');
+      const { matches } = await matchRes.json();
+
+      // Persist matches to the script so the Scripts tab can display them
+      saveScript({ ...script, lastMatches: matches, lastMatchedAt: new Date().toISOString() });
+
+      // 3. Fetch durations for matched clips
+      const uniqueKeys = [...new Set(
+        matches.filter(m => !m.noMatch && m.character && m.filename)
+          .map(m => `${m.character}/${m.filename}`)
+      )];
+      const durationMap = {};
+      await Promise.all(uniqueKeys.map(async (key) => {
+        const [character, filename] = key.split('/');
+        try {
+          const r = await fetch(apiEndpoints.duration(character, filename));
+          const d = await r.json();
+          // duration comes back as "M:SS" string → convert to seconds
+          if (d.duration && typeof d.duration === 'string') {
+            const [m, s] = d.duration.split(':').map(Number);
+            durationMap[key] = (m * 60) + s;
+          } else if (typeof d.duration === 'number') {
+            durationMap[key] = d.duration;
+          }
+        } catch { /* use default */ }
+      }));
+
+      // 4. Compute pixel conversion (mirrors Timeline.js framesToPixels)
+      const FRAMES_PER_SECOND = 60;
+      const TIMELINE_TOTAL_FRAMES = 36000;
+      const timelineEl = document.querySelector('.timeline-content');
+      const timelineRect = timelineEl?.getBoundingClientRect();
+      const trackContentStart = 76;
+      const bufferZone = 38;
+      const actualWidth = timelineRect
+        ? timelineRect.width - trackContentStart - bufferZone
+        : 1000;
+      const f2p = (frames) => (frames / TIMELINE_TOTAL_FRAMES) * actualWidth;
+
+      // 5. Build timeline clips
+      let cursor = 0;
+      const newClips = [];
+      matches.forEach((match, idx) => {
+        // Zigzag: alternate between bottom two video tracks (1 = bottom, 2 = above)
+        const track = idx % 2 === 0 ? 2 : 1;
+
+        // Estimate sentence speaking duration (~150 words/min = 2.5 words/sec, min 1.5s)
+        const wordCount = (match.sentence || '').trim().split(/\s+/).filter(Boolean).length;
+        const sentenceSec = Math.max(1.5, wordCount / 2.5);
+        const sentenceDurationFrames = Math.round(sentenceSec * FRAMES_PER_SECOND);
+
+        const key = `${match.character}/${match.filename}`;
+        const durationSec = durationMap[key] || 5;
+        const durationFrames = Math.round(durationSec * FRAMES_PER_SECOND);
+        const clipData = allClips.find(c =>
+          c.character === match.character && c.filename === match.filename);
+
+        // Trim clip to sentence duration if longer; use full clip if shorter
+        let clipTimelineFrames, rightCropFrames;
+        if (durationFrames >= sentenceDurationFrames) {
+          clipTimelineFrames = sentenceDurationFrames;
+          rightCropFrames = durationFrames - sentenceDurationFrames;
+        } else {
+          clipTimelineFrames = durationFrames;
+          rightCropFrames = 0;
+        }
+
+        newClips.push({
+          id: `gen-${script.id}-${idx}-${Date.now()}`,
+          character: match.character,
+          filename: match.filename,
+          track,
+          startFrames: cursor,
+          endFrames: cursor + clipTimelineFrames,       // visual (trimmed) end
+          startPixel: f2p(cursor),
+          endPixel: f2p(cursor + clipTimelineFrames),
+          widthPixel: f2p(cursor + clipTimelineFrames) - f2p(cursor),
+          instanceStartFrames: cursor,
+          instanceEndFrames: cursor + durationFrames,  // full clip extent (required for crop math)
+          instanceStartPixel: f2p(cursor),
+          instanceEndPixel: f2p(cursor + durationFrames),
+          instanceWidthPixel: f2p(durationFrames),
+          originalStart: cursor,
+          originalEnd: cursor + durationFrames,
+          originalStartFrames: 0,
+          originalEndFrames: durationFrames,
+          originalDurationFrames: durationFrames,
+          durationFrames,
+          leftCropFrames: 0,
+          rightCropFrames,
+          speed: 1.0,
+          duration: durationSec,
+          type: 'backend',
+          frameRate: 24,
+          scriptId: script.id,
+          sentenceIndex: idx,
+          generatedMatch: true,
+          metadata: clipData?.metadata || {}
+        });
+        cursor += clipTimelineFrames;
+      });
+
+      // 6. Place clips (bypass undo history for the bulk replace)
+      isUndoingRef.current = true;
+      setTimelineClips(newClips);
+      setTimeout(() => { isUndoingRef.current = false; }, 100);
+
+      setGenerateToast(`Generated ${newClips.filter(c => !c.isPlaceholder).length} clips from ${script.sentences.length} sentences`);
+      setTimeout(() => setGenerateToast(null), 3500);
+
+    } catch (err) {
+      alert(`Generate failed: ${err.message}`);
+    }
+  }, [timelineClips, setTimelineClips, isUndoingRef, setGenerateToast]);
+
+  React.useEffect(() => {
+    window.generateVideoFromScript = generateVideoFromScript;
+    window.regenerateVideoFromScript = (script) => generateVideoFromScript(script, { force: true });
+    return () => {
+      window.generateVideoFromScript = undefined;
+      window.regenerateVideoFromScript = undefined;
+    };
+  }, [generateVideoFromScript]);
+
+  React.useEffect(() => {
+    window.saveArrangementToScript = (scriptId) => {
+      const linked = timelineClips.filter(c => c.scriptId === scriptId);
+      if (!linked.length) return;
+      const script = getAllScripts().find(s => s.id === scriptId);
+      if (!script) return;
+      saveScript({ ...script, savedArrangement: linked, savedArrangementAt: new Date().toISOString() });
+      setGenerateToast(`Arrangement saved to "${script.name}"`);
+      setTimeout(() => setGenerateToast(null), 2500);
+    };
+    window.restoreArrangementFromScript = (script) => {
+      if (!script.savedArrangement?.length) return;
+      if (timelineClips.length > 0 && !window.confirm('Replace timeline with saved arrangement?')) return;
+      isUndoingRef.current = true;
+      setTimelineClips(script.savedArrangement);
+      setTimeout(() => { isUndoingRef.current = false; }, 100);
+    };
+    return () => {
+      window.saveArrangementToScript = undefined;
+      window.restoreArrangementFromScript = undefined;
+    };
+  }, [timelineClips, setTimelineClips, isUndoingRef, setGenerateToast]);
 
   // Keyboard shortcut handler for Ctrl+Z (undo) and Ctrl+Shift+Z (redo)
   React.useEffect(() => {
@@ -1847,6 +2040,179 @@ function EditorLayout() {
         }}
         onMouseDown={handleMouseDown('timeline')}
       />
+
+      {/* Generate Video Toast */}
+      {generateToast && (
+        <div style={{
+          position: 'absolute',
+          bottom: '24px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          background: '#1a1a2e',
+          color: '#4ade80',
+          padding: '10px 20px',
+          borderRadius: '8px',
+          fontSize: '14px',
+          fontWeight: '600',
+          boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+          zIndex: 9999,
+          whiteSpace: 'nowrap',
+          pointerEvents: 'none'
+        }}>
+          ✓ {generateToast}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Script Panel ─────────────────────────────────────────────────────────────
+function ScriptPanel({ setActiveTab }) {
+  const [scriptName, setScriptName] = React.useState('');
+  const [scriptContent, setScriptContent] = React.useState('');
+  const [editingScriptId, setEditingScriptId] = React.useState(null);
+  const [saved, setSaved] = React.useState(false);
+
+  const sentences = React.useMemo(() => parseSentences(scriptContent), [scriptContent]);
+
+  // Expose loadScriptForEdit so ClipList can call it
+  React.useEffect(() => {
+    window.loadScriptForEdit = (script) => {
+      setScriptName(script.name || '');
+      setScriptContent(script.content || '');
+      setEditingScriptId(script.id || null);
+      setSaved(false);
+      if (setActiveTab) setActiveTab('script');
+    };
+    return () => { window.loadScriptForEdit = undefined; };
+  }, [setActiveTab]);
+
+  const handleSave = () => {
+    if (!scriptContent.trim()) return;
+    const now = new Date().toISOString();
+    const id = editingScriptId || generateId();
+    const script = {
+      id,
+      name: scriptName.trim() || 'Untitled Script',
+      content: scriptContent,
+      sentences: parseSentences(scriptContent),
+      createdAt: editingScriptId ? undefined : now, // preserve original if editing
+      updatedAt: now,
+    };
+    // Preserve createdAt if editing existing script
+    if (editingScriptId) {
+      const existing = getAllScripts().find(s => s.id === editingScriptId);
+      if (existing) script.createdAt = existing.createdAt;
+    }
+    if (!script.createdAt) script.createdAt = now;
+    saveScript(script);
+    setEditingScriptId(id);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  const handleClear = () => {
+    setScriptName('');
+    setScriptContent('');
+    setEditingScriptId(null);
+    setSaved(false);
+  };
+
+  return (
+    <div style={{
+      display: 'flex',
+      flexDirection: 'column',
+      height: '100%',
+      padding: '24px',
+      maxWidth: '800px',
+      margin: '0 auto',
+      width: '100%',
+      boxSizing: 'border-box',
+    }}>
+      <h2 style={{ margin: '0 0 16px 0', fontSize: '18px', fontWeight: '700', color: '#1a1a1a' }}>
+        Script Input
+      </h2>
+
+      {/* Script name */}
+      <input
+        type="text"
+        placeholder="Script name (e.g. My Video Essay)"
+        value={scriptName}
+        onChange={e => { setScriptName(e.target.value); setSaved(false); }}
+        style={{
+          padding: '10px 14px',
+          fontSize: '15px',
+          border: '1px solid #ddd',
+          borderRadius: '6px',
+          marginBottom: '12px',
+          fontWeight: '600',
+          outline: 'none',
+        }}
+      />
+
+      {/* Script body */}
+      <textarea
+        placeholder="Paste or type your script here. Each sentence will be matched to a video clip."
+        value={scriptContent}
+        onChange={e => { setScriptContent(e.target.value); setSaved(false); }}
+        style={{
+          flex: 1,
+          padding: '12px 14px',
+          fontSize: '14px',
+          lineHeight: '1.6',
+          border: '1px solid #ddd',
+          borderRadius: '6px',
+          resize: 'none',
+          fontFamily: 'inherit',
+          outline: 'none',
+          marginBottom: '12px',
+          minHeight: '200px',
+        }}
+      />
+
+      {/* Sentence count */}
+      <div style={{ fontSize: '13px', color: '#888', marginBottom: '12px' }}>
+        {sentences.length} sentence{sentences.length !== 1 ? 's' : ''} detected
+      </div>
+
+      {/* Actions */}
+      <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+        <button
+          onClick={handleSave}
+          disabled={!scriptContent.trim()}
+          style={{
+            padding: '10px 20px',
+            background: scriptContent.trim() ? '#007bff' : '#b0c4de',
+            color: 'white',
+            border: 'none',
+            borderRadius: '6px',
+            cursor: scriptContent.trim() ? 'pointer' : 'not-allowed',
+            fontWeight: '600',
+            fontSize: '14px',
+          }}
+        >
+          {editingScriptId ? 'Update Script' : 'Save Script'}
+        </button>
+        <button
+          onClick={handleClear}
+          style={{
+            padding: '10px 20px',
+            background: 'white',
+            color: '#666',
+            border: '1px solid #ddd',
+            borderRadius: '6px',
+            cursor: 'pointer',
+            fontSize: '14px',
+          }}
+        >
+          Clear
+        </button>
+        {saved && (
+          <span style={{ color: '#4ade80', fontSize: '13px', fontWeight: '600' }}>
+            ✓ Saved
+          </span>
+        )}
+      </div>
     </div>
   );
 }

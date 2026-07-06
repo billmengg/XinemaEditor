@@ -3,6 +3,7 @@ import { logOnce } from '../utils/consoleDeduplication';
 import { generateAudioWaveform } from '../utils/audioWaveform';
 import { TARGET_ASPECT_RATIO_CSS } from '../utils/constants';
 import { apiEndpoints } from '../config/api';
+import { getAllScripts, deleteScript, duplicateScript } from '../utils/scriptStorage';
 
 // Lazy loading duration component
 const LazyDuration = ({ clip }) => {
@@ -238,7 +239,11 @@ export default function ClipList({ onClipSelect, importedMedia: externalImported
   const [selectedSeason, setSelectedSeason] = useState("all");
   const [contextMenu, setContextMenu] = useState(null);
   const [columnsExpanded, setColumnsExpanded] = useState(false);
-  const [activeTab, setActiveTab] = useState("arcane"); // "arcane" or "imported"
+  const [activeTab, setActiveTab] = useState("arcane"); // "arcane", "imported", or "scripts"
+  const [scripts, setScripts] = useState(() => getAllScripts());
+  const [scriptMenuOpen, setScriptMenuOpen] = useState(null); // script id with open menu
+  const [scriptMenuPos, setScriptMenuPos] = useState(null);   // { top, right } fixed coords
+  const [expandedScriptId, setExpandedScriptId] = useState(null); // script id expanded to show matches
   // Use external state if provided, otherwise use internal state
   const [internalImportedMedia, setInternalImportedMedia] = useState([]);
   const importedMedia = externalImportedMedia !== undefined ? externalImportedMedia : internalImportedMedia;
@@ -278,6 +283,13 @@ export default function ClipList({ onClipSelect, importedMedia: externalImported
       setLoading(false);
     }
     fetchClips();
+  }, []);
+
+  // Refresh scripts list when storage changes
+  useEffect(() => {
+    const refresh = () => setScripts(getAllScripts());
+    window.addEventListener('xinema:scriptsUpdated', refresh);
+    return () => window.removeEventListener('xinema:scriptsUpdated', refresh);
   }, []);
 
   // Cleanup effect to reset drag state on unmount
@@ -422,27 +434,15 @@ export default function ClipList({ onClipSelect, importedMedia: externalImported
           if (mouseX >= timelineRect.left && mouseX <= timelineRect.right &&
               mouseY >= timelineRect.top && mouseY <= timelineRect.bottom) {
             
-            // Calculate track based on mouse position
-            // Use the same coordinate system as Timeline component
-            const relativeY = mouseY - timelineRect.top;
-            let targetTrack = 3; // Default to track 3 (highest)
-            
-            // Use the same track boundaries as Timeline component
-            if (relativeY >= 100 && relativeY < 150) {
-              targetTrack = 3; // Top track
-            } else if (relativeY >= 150 && relativeY < 200) {
-              targetTrack = 2; // Middle track
-            } else if (relativeY >= 200 && relativeY < 250) {
-              targetTrack = 1; // Bottom track
-            }
-            
-            // Create a synthetic drop event
+            // Don't calculate track here - let Timeline.js determine the correct track
+            // based on clip type (MP3 goes to audio tracks, everything else to video tracks)
+            // Create a synthetic drop event without track - Timeline will calculate it
             const dropEvent = new CustomEvent('timelineDrop', {
               detail: {
                 clip: draggedClip,
                 clientX: mouseX,
-                clientY: mouseY,
-                track: targetTrack
+                clientY: mouseY
+                // No track specified - Timeline.js will use getTargetTrack() to determine correct track
               }
             });
             
@@ -1306,6 +1306,37 @@ export default function ClipList({ onClipSelect, importedMedia: externalImported
             >
               Imported Media
                 </button>
+            <button
+              onClick={() => setActiveTab("scripts")}
+              style={{
+                padding: "10px 20px",
+                border: "none",
+                borderBottom: activeTab === "scripts" ? "2px solid #007bff" : "2px solid transparent",
+                background: "transparent",
+                color: activeTab === "scripts" ? "#007bff" : "#666",
+                cursor: "pointer",
+                fontSize: "14px",
+                fontWeight: "600",
+                marginBottom: "-1px",
+                transition: "all 0.15s ease",
+                outline: "none",
+                position: "relative"
+              }}
+              onMouseEnter={(e) => {
+                if (activeTab !== "scripts") {
+                  e.target.style.color = "#007bff";
+                  e.target.style.background = "#f8f9fa";
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (activeTab !== "scripts") {
+                  e.target.style.color = "#666";
+                  e.target.style.background = "transparent";
+                }
+              }}
+            >
+              Scripts
+            </button>
       </div>
 
           {/* Search and Controls - Always rendered to maintain layout */}
@@ -1391,6 +1422,22 @@ export default function ClipList({ onClipSelect, importedMedia: externalImported
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", height: "24px" }}>
               <div style={{ fontSize: "14px", fontWeight: "600", color: "#333" }}>
                 {activeTab === "imported" ? `${filteredImportedMedia.length} media file${filteredImportedMedia.length !== 1 ? 's' : ''} found` : ""}
+              </div>
+            </div>
+          </div>
+
+          {/* Scripts tab header row */}
+          <div style={{
+            paddingBottom: "16px",
+            opacity: activeTab === "scripts" ? 1 : 0,
+            visibility: activeTab === "scripts" ? "visible" : "hidden",
+            height: activeTab === "scripts" ? "auto" : "0",
+            overflow: "hidden",
+            transition: "opacity 0.15s ease, visibility 0.15s ease"
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", height: "24px" }}>
+              <div style={{ fontSize: "14px", fontWeight: "600", color: "#333" }}>
+                {activeTab === "scripts" ? `${scripts.length} script${scripts.length !== 1 ? 's' : ''}` : ""}
               </div>
             </div>
           </div>
@@ -1695,7 +1742,7 @@ export default function ClipList({ onClipSelect, importedMedia: externalImported
             </div>
           )}
             </>
-          ) : (
+          ) : activeTab === "imported" ? (
             /* Imported Media Tab */
             <div 
               style={{ 
@@ -1915,11 +1962,186 @@ export default function ClipList({ onClipSelect, importedMedia: externalImported
                 </>
               )}
             </div>
+          ) : (
+            /* Scripts Tab */
+            <div style={{ flex: 1, overflow: "auto" }}>
+              {scripts.length === 0 ? (
+                <div style={{
+                  padding: "48px",
+                  textAlign: "center",
+                  color: "#999",
+                  border: "2px dashed #ddd",
+                  borderRadius: "8px",
+                  background: "#fafafa"
+                }}>
+                  <div style={{ fontSize: "16px", marginBottom: "8px", fontWeight: "600" }}>
+                    No scripts saved
+                  </div>
+                  <div style={{ fontSize: "14px" }}>
+                    Write one in the Script Input tab
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                  {scripts.map(script => {
+                    const isMenuOpen = scriptMenuOpen === script.id;
+                    const relativeTime = (() => {
+                      const diff = Date.now() - new Date(script.updatedAt).getTime();
+                      const mins = Math.floor(diff / 60000);
+                      const hours = Math.floor(diff / 3600000);
+                      const days = Math.floor(diff / 86400000);
+                      if (mins < 1) return 'just now';
+                      if (mins < 60) return `${mins}m ago`;
+                      if (hours < 24) return `${hours}h ago`;
+                      return `${days}d ago`;
+                    })();
+
+                    const isExpanded = expandedScriptId === script.id;
+
+                    return (
+                      <div
+                        key={script.id}
+                        onClick={() => setExpandedScriptId(isExpanded ? null : script.id)}
+                        style={{
+                          border: "1px solid #e0e0e0",
+                          borderRadius: "8px",
+                          padding: "12px 14px",
+                          background: "white",
+                          boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+                          cursor: "pointer"
+                        }}
+                      >
+                        {/* Card header */}
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "4px" }}>
+                          <div style={{ fontWeight: "700", fontSize: "14px", color: "#1a1a1a", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {isExpanded ? "▾" : "▸"} {script.name || 'Untitled Script'}
+                          </div>
+                          {/* ⋯ menu — use fixed positioning so overflow:auto doesn't clip it */}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (isMenuOpen) {
+                                setScriptMenuOpen(null);
+                                setScriptMenuPos(null);
+                              } else {
+                                const rect = e.currentTarget.getBoundingClientRect();
+                                setScriptMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+                                setScriptMenuOpen(script.id);
+                              }
+                            }}
+                            style={{ background: "transparent", border: "none", cursor: "pointer", padding: "2px 8px", fontSize: "18px", color: "#666", borderRadius: "4px", lineHeight: "1", flexShrink: 0 }}
+                          >
+                            ⋯
+                          </button>
+                        </div>
+                        <div style={{ fontSize: "12px", color: "#888" }}>
+                          {script.sentences?.length || 0} sentence{(script.sentences?.length || 0) !== 1 ? 's' : ''} · {relativeTime}
+                          {script.lastMatchedAt && <span style={{ marginLeft: "6px", color: "#aaa" }}>· matched</span>}
+                        </div>
+
+                        {/* Expanded match view */}
+                        {isExpanded && (
+                          <div
+                            onClick={e => e.stopPropagation()}
+                            style={{ marginTop: "10px", borderTop: "1px solid #eee", paddingTop: "10px" }}
+                          >
+                            {script.savedArrangement?.length > 0 && (
+                              <div style={{ marginBottom: "8px", fontSize: "11px", color: "#555", background: "#fffbe6", borderRadius: "4px", padding: "5px 8px", borderLeft: "3px solid #f0b429" }}>
+                                Saved arrangement: {script.savedArrangement.length} clips
+                                {script.savedArrangementAt && (
+                                  <span style={{ color: "#999", marginLeft: "6px" }}>
+                                    {new Date(script.savedArrangementAt).toLocaleString()}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                            {script.lastMatches ? (
+                              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                                {script.lastMatches.map((match, i) => (
+                                  <div key={i} style={{ fontSize: "12px", background: "#f8f9fa", borderRadius: "4px", padding: "6px 8px", borderLeft: "3px solid #007bff" }}>
+                                    <div style={{ color: "#333", marginBottom: "3px", lineHeight: "1.4" }}>
+                                      &ldquo;{match.sentence}&rdquo;
+                                    </div>
+                                    <div style={{ color: "#555", fontWeight: "500" }}>
+                                      {match.character} — {match.filename}
+                                      <span style={{ color: "#aaa", fontWeight: "400", marginLeft: "6px" }}>
+                                        score: {match.score}
+                                      </span>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <div style={{ fontSize: "12px", color: "#999", fontStyle: "italic" }}>
+                                Generate video to see sentence matches
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           )}
 
         </div>
       </div>
-      
+
+      {/* Script ⋯ dropdown — rendered at root level so overflow:auto never clips it */}
+      {scriptMenuOpen && scriptMenuPos && (() => {
+        const script = scripts.find(s => s.id === scriptMenuOpen);
+        if (!script) return null;
+        return (
+          <>
+            <div style={{ position: "fixed", inset: 0, zIndex: 998 }} onClick={() => { setScriptMenuOpen(null); setScriptMenuPos(null); }} />
+            <div style={{ position: "fixed", top: scriptMenuPos.top, right: scriptMenuPos.right, background: "white", border: "1px solid #ddd", borderRadius: "6px", boxShadow: "0 4px 12px rgba(0,0,0,0.15)", zIndex: 999, minWidth: "160px", padding: "4px 0" }}>
+              <button onClick={() => { setScriptMenuOpen(null); setScriptMenuPos(null); if (window.generateVideoFromScript) window.generateVideoFromScript(script); }}
+                style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 16px", border: "none", background: "transparent", cursor: "pointer", fontSize: "13px", fontWeight: "600", color: "#007bff" }}
+                onMouseEnter={e => e.target.style.background = "#f0f7ff"} onMouseLeave={e => e.target.style.background = "transparent"}>
+                Generate Video
+              </button>
+              <button onClick={() => { setScriptMenuOpen(null); setScriptMenuPos(null); if (window.regenerateVideoFromScript) window.regenerateVideoFromScript(script); }}
+                style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 16px", border: "none", background: "transparent", cursor: "pointer", fontSize: "13px", color: "#007bff" }}
+                onMouseEnter={e => e.target.style.background = "#f0f7ff"} onMouseLeave={e => e.target.style.background = "transparent"}>
+                Regenerate Match
+              </button>
+              <div style={{ borderTop: "1px solid #eee", margin: "4px 0" }} />
+              <button onClick={() => { setScriptMenuOpen(null); setScriptMenuPos(null); if (window.saveArrangementToScript) window.saveArrangementToScript(script.id); }}
+                style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 16px", border: "none", background: "transparent", cursor: "pointer", fontSize: "13px", color: "#333" }}
+                onMouseEnter={e => e.target.style.background = "#f8f9fa"} onMouseLeave={e => e.target.style.background = "transparent"}>
+                Save Arrangement
+              </button>
+              {script.savedArrangement?.length > 0 && (
+                <button onClick={() => { setScriptMenuOpen(null); setScriptMenuPos(null); if (window.restoreArrangementFromScript) window.restoreArrangementFromScript(script); }}
+                  style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 16px", border: "none", background: "transparent", cursor: "pointer", fontSize: "13px", color: "#333" }}
+                  onMouseEnter={e => e.target.style.background = "#f8f9fa"} onMouseLeave={e => e.target.style.background = "transparent"}>
+                  Restore Arrangement
+                </button>
+              )}
+              <div style={{ borderTop: "1px solid #eee", margin: "4px 0" }} />
+              <button onClick={() => { setScriptMenuOpen(null); setScriptMenuPos(null); if (window.loadScriptForEdit) window.loadScriptForEdit(script); }}
+                style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 16px", border: "none", background: "transparent", cursor: "pointer", fontSize: "13px", color: "#333" }}
+                onMouseEnter={e => e.target.style.background = "#f8f9fa"} onMouseLeave={e => e.target.style.background = "transparent"}>
+                Edit
+              </button>
+              <button onClick={() => { setScriptMenuOpen(null); setScriptMenuPos(null); duplicateScript(script.id); }}
+                style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 16px", border: "none", background: "transparent", cursor: "pointer", fontSize: "13px", color: "#333" }}
+                onMouseEnter={e => e.target.style.background = "#f8f9fa"} onMouseLeave={e => e.target.style.background = "transparent"}>
+                Duplicate
+              </button>
+              <div style={{ borderTop: "1px solid #eee", margin: "4px 0" }} />
+              <button onClick={() => { setScriptMenuOpen(null); setScriptMenuPos(null); if (window.confirm(`Delete "${script.name}"?`)) deleteScript(script.id); }}
+                style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 16px", border: "none", background: "transparent", cursor: "pointer", fontSize: "13px", color: "#dc3545" }}
+                onMouseEnter={e => e.target.style.background = "#fff5f5"} onMouseLeave={e => e.target.style.background = "transparent"}>
+                Delete
+              </button>
+            </div>
+          </>
+        );
+      })()}
+
       {/* Folder Navigation - Now on the RIGHT, only visible for Arcane Clips */}
       {activeTab === "arcane" && (
         <div style={{ 
@@ -2020,7 +2242,7 @@ export default function ClipList({ onClipSelect, importedMedia: externalImported
           </div>
         </div>
       )}
-      
+
       </div> {/* End Main Content Area */}
     </div>
   );

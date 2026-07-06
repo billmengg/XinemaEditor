@@ -29,13 +29,15 @@ const MAX_URGENT_EXTRACTIONS = 2; // Reserve slots for urgent requests
 const backgroundQueue = [];
 let isProcessingBackground = false;
 
-// Automatic cleanup timer (like Premiere's memory management)
-setInterval(() => {
-  cleanupCache();
-  processBackgroundQueue();
-}, 15000); // Clean up every 15 seconds (more frequent)
+// DISABLED: Automatic cleanup timer - only process on request
+// Backend is now passive - only responds to requests, no background processing
+// setInterval(() => {
+//   cleanupCache();
+//   processBackgroundQueue();
+// }, 15000); // Clean up every 15 seconds (more frequent)
 
 // Smart processing - prioritize urgent requests
+// Only called on-demand when requests are made
 const processBackgroundQueue = async () => {
   if (isProcessingBackground || backgroundQueue.length === 0) return;
   
@@ -53,6 +55,9 @@ const processBackgroundQueue = async () => {
   
   isProcessingBackground = false;
 };
+
+// Cleanup cache only when requests are made (on-demand)
+// This prevents constant background processing when no one is accessing the server
 
 // Cache management functions
 function getCacheKey(character, filename, frameNumber) {
@@ -485,28 +490,35 @@ const getAllClips = async (req, res) => {
         .on('error', reject);
     });
     
-    // Process all rows without async operations for faster loading
-    const clips = rows.map((row) => {
-      // Parse season, episode, order from the ID (format: XX.S1.E1.C01)
-      let season = '', episode = '', order = '';
-      const idMatch = row.id.match(/S(\d+)\.E(\d+)\.C(\d+)/i);
-      if (idMatch) {
-        season = `S${idMatch[1]}`;
-        episode = `E${idMatch[2]}`;
-        order = parseInt(idMatch[3], 10);
-      }
-      
-      // Return clip data without any file system operations
-      return {
-        ...row,
-        season,
-        episode,
-        order,
-        duration: "0:00", // Placeholder - will be loaded when needed
-        thumbnail: null, // Placeholder - would need thumbnail generation
-      };
-    });
-    
+    const videoBaseDir = path.join('C:', 'Users', 'William', 'Documents', 'YouTube', 'Video', 'Arcane Footage', 'Video Footage 2');
+
+    // Process rows, filtering out clips whose video files don't exist on disk
+    const clips = rows
+      .filter((row) => {
+        if (!row.character || !row.filename) return false;
+        const videoPath = path.join(videoBaseDir, row.character, row.filename);
+        return fs.existsSync(videoPath);
+      })
+      .map((row) => {
+        // Parse season, episode, order from the ID (format: XX.S1.E1.C01)
+        let season = '', episode = '', order = '';
+        const idMatch = row.id.match(/S(\d+)\.E(\d+)\.C(\d+)/i);
+        if (idMatch) {
+          season = `S${idMatch[1]}`;
+          episode = `E${idMatch[2]}`;
+          order = parseInt(idMatch[3], 10);
+        }
+
+        return {
+          ...row,
+          season,
+          episode,
+          order,
+          duration: "0:00", // Placeholder - will be loaded when needed
+          thumbnail: null,
+        };
+      });
+
     res.json(clips);
   } catch (error) {
     console.error('Error in getAllClips:', error);
@@ -665,6 +677,9 @@ const generateClipThumbnails = async (req, res) => {
 
 // Enhanced frame loading with performance tracking and frame rate conversion
 const streamFrameDirect = async (req, res) => {
+  // Cleanup cache on-demand when requests are made (not in background)
+  cleanupCache();
+  
   const startTime = performance.now();
   console.log('🎬 ENHANCED FRAME REQUEST:', {
     params: req.params,
@@ -754,7 +769,12 @@ const streamFrameDirect = async (req, res) => {
       'C:', 'Users', 'William', 'Documents', 'YouTube', 'Video', 'Arcane Footage', 'Video Footage 2',
       character, decodedFilename
     );
-    
+
+    if (!fs.existsSync(videoPath)) {
+      console.error('❌ Video file not found:', { path: videoPath, character, filename: decodedFilename });
+      return res.status(404).json({ error: 'Video file not found', path: videoPath, character, filename: decodedFilename });
+    }
+
     try {
       // Generate thumbnail immediately with performance tracking (URGENT PRIORITY)
       const extractionStartTime = performance.now();
@@ -810,235 +830,7 @@ const streamFrameDirect = async (req, res) => {
       res.setHeader('Cache-Control', 'public, max-age=300'); // 5 minutes only
     res.send(placeholder);
     return;
-    
-    console.log('🎬 Stream frame request:', { 
-      character, 
-      filename: decodedFilename, 
-      frameNumber,
-      originalFilename: filename,
-      urlEncoded: filename !== decodedFilename
-    });
-    
-    console.log('📁 Video path:', videoPath);
-    console.log('📁 Path exists check:', fs.existsSync(videoPath));
-    console.log('📁 Directory exists:', fs.existsSync(path.dirname(videoPath)));
-    console.log('📁 Directory contents:', fs.readdirSync(path.dirname(videoPath)));
-    
-    if (!fs.existsSync(videoPath)) {
-      console.error('❌ Video file not found:', {
-        path: videoPath,
-        character,
-        originalFilename: filename,
-        decodedFilename,
-        directoryExists: fs.existsSync(path.dirname(videoPath))
-      });
-      return res.status(404).json({ 
-        error: 'Video file not found',
-        path: videoPath,
-        character,
-        filename: decodedFilename
-      });
-    }
-    
-    console.log('✅ Video file exists, starting FFmpeg...');
-    
-    // Log frame number for debugging
-    console.log('🎯 FRAME REQUEST DEBUG:', {
-      requestedFrame: frameNumber,
-      validatedFrame: validatedFrameNumber,
-      video: decodedFilename,
-      character: character,
-      originalFilename: filename,
-      decodedFilename: decodedFilename,
-      frameType: typeof frameNumber,
-      frameIsInteger: Number.isInteger(validatedFrameNumber)
-    });
-    
-    // Get video frame count to validate frame number
-    try {
-      const { spawn } = require('child_process');
-      const ffprobe = spawn('ffprobe', [
-        '-v', 'quiet',
-        '-select_streams', 'v:0',
-        '-count_frames',
-        '-show_entries', 'stream=nb_frames',
-        videoPath
-      ]);
-      
-      let probeOutput = '';
-      ffprobe.stdout.on('data', (data) => {
-        probeOutput += data.toString();
-      });
-      
-      ffprobe.on('close', (code) => {
-        if (code === 0) {
-          try {
-            const match = probeOutput.match(/nb_frames=(\d+)/);
-            if (match) {
-              const totalFrames = parseInt(match[1]);
-              console.log('📹 Video has', totalFrames, 'frames, requesting frame', validatedFrameNumber);
-              
-              if (validatedFrameNumber >= totalFrames) {
-                console.error('❌ Frame number out of range:', {
-                  requested: validatedFrameNumber,
-                  totalFrames: totalFrames,
-                  video: decodedFilename
-                });
-                return res.status(400).json({ 
-                  error: 'Frame number out of range',
-                  requested: validatedFrameNumber,
-                  totalFrames: totalFrames,
-                  message: `Video only has ${totalFrames} frames, but frame ${validatedFrameNumber} was requested`
-                });
-              }
-            }
-          } catch (parseError) {
-            console.error('❌ Error parsing video frame count:', parseError);
-          }
-        }
-      });
-    } catch (probeError) {
-      console.error('❌ Error getting video frame count:', probeError);
-    }
-    
-    // Set headers for image response
-    res.setHeader('Content-Type', 'image/png');
-    res.setHeader('Cache-Control', 'public, max-age=3600'); // Cache for 1 hour
-    
-    // Use FFmpeg to stream frame directly to response
-    // Try using frame-based seeking with more reliable approach
-    // Get video frame rate for accurate time calculation
-    let videoFrameRate = 24; // Default fallback
-    try {
-      const videoInfo = await getVideoInfo(character, decodedFilename);
-      if (videoInfo && videoInfo.frameRate) {
-        videoFrameRate = videoInfo.frameRate;
-        console.log('📹 Using video frame rate:', videoFrameRate, 'fps');
-      }
-    } catch (error) {
-      console.log('⚠️ Could not get video frame rate, using default 24fps');
-    }
-    
-    // Calculate time position for direct seeking (much faster than select filter)
-    const timePosition = validatedFrameNumber / videoFrameRate;
-    
-    // Scale frame to target resolution (1080x720) while maintaining aspect ratio
-    // Pad with black bars if needed to fit exact dimensions
-    const ffmpegArgs = [
-      '-hwaccel', 'auto', // Enable hardware acceleration
-      '-ss', timePosition.toString(),  // Seek directly to time position
-      '-i', videoPath,
-      '-vf', `scale=${TARGET_WIDTH}:${TARGET_HEIGHT}:force_original_aspect_ratio=decrease,pad=${TARGET_WIDTH}:${TARGET_HEIGHT}:(ow-iw)/2:(oh-ih)/2:black`,
-      '-vframes', '1',  // Extract just 1 frame
-      '-f', 'image2pipe',
-      '-vcodec', 'png',
-      '-compression_level', '1', // Fast compression
-      '-pred', 'mixed', // Fast prediction
-      '-threads', '1', // Single thread to reduce CPU load
-      '-preset', 'ultrafast', // Fastest encoding preset
-      '-tune', 'fastdecode', // Optimize for fast decoding
-      '-'
-    ];
-    
-    console.log('🔧 FFmpeg command:', 'ffmpeg', ffmpegArgs.join(' '));
-    
-    const { spawn } = require('child_process');
-    const ffmpeg = spawn('ffmpeg', ffmpegArgs);
-    
-    // Set timeout to prevent hanging
-    const timeout = setTimeout(() => {
-      console.error('⏰ FFmpeg timeout - killing process');
-      ffmpeg.kill('SIGTERM');
-      if (!res.headersSent) {
-        res.status(500).json({ error: 'Frame extraction timeout' });
-      }
-    }, 10000); // 10 second timeout
-    
-    // Capture stderr for debugging
-    let stderrOutput = '';
-    ffmpeg.stderr.on('data', (data) => {
-      stderrOutput += data.toString();
-      console.log('🔧 FFmpeg stderr:', data.toString());
-    });
-    
-    // Collect frame data for caching
-    let frameData = Buffer.alloc(0);
-    let dataSent = 0;
-    
-    ffmpeg.stdout.on('data', (chunk) => {
-      frameData = Buffer.concat([frameData, chunk]);
-      dataSent += chunk.length;
-      console.log('📤 FFmpeg data chunk:', chunk.length, 'bytes, total:', dataSent);
-    });
-    
-    ffmpeg.stdout.on('end', () => {
-      // Cache the frame data
-      if (frameData.length > 0) {
-        cleanupCache(); // Clean up old cache entries
-        frameCache.set(cacheKey, {
-          data: frameData,
-          timestamp: Date.now()
-        });
-        console.log('💾 Cached frame:', cacheKey, 'Size:', frameData.length, 'bytes');
-      }
-    });
-    
-    ffmpeg.stdout.pipe(res);
-    
-    // Add response end handler to debug
-    res.on('finish', () => {
-      console.log('📤 Response finished, data sent:', dataSent, 'bytes');
-    });
-    
-    res.on('close', () => {
-      console.log('📤 Response closed, data sent:', dataSent, 'bytes');
-    });
-    
-    ffmpeg.on('error', (error) => {
-      console.error('❌ FFmpeg spawn error:', {
-        error: error.message,
-        code: error.code,
-        errno: error.errno,
-        syscall: error.syscall,
-        path: error.path,
-        spawnargs: error.spawnargs
-      });
-      if (!res.headersSent) {
-        res.status(500).json({ 
-          error: 'Frame extraction failed',
-          details: error.message,
-          stderr: stderrOutput
-        });
-      }
-    });
-    
-    ffmpeg.on('close', (code) => {
-      clearTimeout(timeout); // Clear the timeout
-      console.log('🏁 FFmpeg process finished:', {
-        code,
-        stderr: stderrOutput,
-        success: code === 0,
-        dataSent: dataSent
-      });
-      if (code !== 0) {
-        console.error('❌ FFmpeg process failed:', {
-          exitCode: code,
-          stderr: stderrOutput,
-          command: 'ffmpeg ' + ffmpegArgs.join(' '),
-          dataSent: dataSent
-        });
-        if (!res.headersSent) {
-          res.status(500).json({ 
-            error: 'Frame extraction failed',
-            exitCode: code,
-            stderr: stderrOutput
-          });
-        }
-      } else {
-        console.log('✅ Frame extraction completed successfully, data sent:', dataSent, 'bytes');
-      }
-    });
-    
+
   } catch (error) {
     console.error('❌ Error streaming frame:', error);
     res.status(500).json({ error: error.message });
@@ -1180,6 +972,53 @@ const preExtractFrames = async (req, res) => {
   }
 };
 
+// ─── Script matching via Python ──────────────────────────────────────────────
+
+const matchScript = (req, res) => {
+  const { sentences, clips } = req.body;
+
+  if (!Array.isArray(sentences) || sentences.length === 0) {
+    return res.status(400).json({ error: 'sentences must be a non-empty array' });
+  }
+  if (!Array.isArray(clips) || clips.length === 0) {
+    return res.status(400).json({ error: 'clips must be a non-empty array' });
+  }
+
+  const matcherPath = path.join(__dirname, '../matcher.py');
+
+  // Try 'python' on Windows, 'python3' on Unix
+  const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+  const child = spawn(pythonCmd, [matcherPath], { stdio: ['pipe', 'pipe', 'pipe'] });
+
+  let stdout = '';
+  let stderr = '';
+
+  child.stdout.on('data', (data) => { stdout += data.toString(); });
+  child.stderr.on('data', (data) => { stderr += data.toString(); });
+
+  child.on('close', (code) => {
+    if (code !== 0) {
+      console.error('❌ matcher.py exited with code', code, ':', stderr);
+      return res.status(500).json({ error: 'Matching failed', details: stderr });
+    }
+    try {
+      const result = JSON.parse(stdout);
+      res.json(result);
+    } catch (e) {
+      console.error('❌ Failed to parse matcher.py output:', stdout);
+      res.status(500).json({ error: 'Failed to parse matching results' });
+    }
+  });
+
+  child.on('error', (err) => {
+    console.error('❌ Failed to spawn matcher.py:', err.message);
+    res.status(500).json({ error: `Could not run Python: ${err.message}` });
+  });
+
+  child.stdin.write(JSON.stringify({ sentences, clips }));
+  child.stdin.end();
+};
+
 module.exports = {
   getAllClips,
   getVideoFile,
@@ -1190,5 +1029,6 @@ module.exports = {
   getVideoInfo,
   getVideoInfoRoute,
   preExtractFrames,
-  generateClipThumbnails
+  generateClipThumbnails,
+  matchScript
 };

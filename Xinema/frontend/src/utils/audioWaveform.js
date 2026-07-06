@@ -110,6 +110,106 @@ export async function generateAudioWaveform(audioFile, duration = 3, width = 108
 }
 
 /**
+ * Generate a full waveform visualization for the entire audio file
+ * @param {File} audioFile - The audio file to analyze
+ * @param {number} width - Canvas width (will scale to fit timeline clip width)
+ * @param {number} height - Canvas height (default: 48px for timeline track height)
+ * @returns {Promise<string>} - Data URL of the waveform image
+ */
+export async function generateFullAudioWaveform(audioFile, width = 1000, height = 48) {
+  return new Promise((resolve, reject) => {
+    try {
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const fileReader = new FileReader();
+      
+      fileReader.onload = async (e) => {
+        try {
+          const audioBuffer = await audioContext.decodeAudioData(e.target.result);
+          
+          // Use a high resolution for better quality (minimum 2000px width for long audio)
+          // This ensures the waveform looks good even when scaled
+          const renderWidth = Math.max(width, 2000);
+          
+          // Create canvas for waveform
+          const canvas = document.createElement('canvas');
+          canvas.width = renderWidth;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          
+          // Get audio data
+          const sampleRate = audioBuffer.sampleRate;
+          const channelData = audioBuffer.getChannelData(0); // Use first channel
+          const totalSamples = channelData.length;
+          
+          // Number of bars to draw (one per pixel for detailed waveform)
+          const numBars = renderWidth;
+          const samplesPerBar = Math.floor(totalSamples / numBars);
+          
+          // First pass: calculate RMS values for all segments to find max for normalization
+          const rmsValues = [];
+          let maxRms = 0;
+          for (let i = 0; i < numBars; i++) {
+            const start = i * samplesPerBar;
+            const end = Math.min(start + samplesPerBar, totalSamples);
+            
+            // Calculate RMS (Root Mean Square) for this segment
+            let sum = 0;
+            let count = 0;
+            for (let j = start; j < end; j++) {
+              sum += channelData[j] * channelData[j];
+              count++;
+            }
+            const rms = count > 0 ? Math.sqrt(sum / count) : 0;
+            rmsValues.push(rms);
+            maxRms = Math.max(maxRms, rms);
+          }
+          
+          // Background (transparent or subtle)
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+          ctx.fillRect(0, 0, renderWidth, height);
+          
+          // Draw waveform bars
+          ctx.fillStyle = '#4a90e2'; // Blue color matching audio clips
+          const centerY = height / 2;
+          
+          for (let i = 0; i < numBars; i++) {
+            // Normalize RMS to 0-1 range based on max RMS found
+            const normalizedRms = maxRms > 0 ? rmsValues[i] / maxRms : 0;
+            
+            // Convert to bar height - stretch to fill full height based on normalized amplitude
+            // Use a minimum height of 2px for visibility, and scale to full height
+            const barHeight = Math.max(2, normalizedRms * height);
+            
+            // Draw bar (centered vertically, stretching from center to edges)
+            const x = i;
+            const y = centerY - barHeight / 2;
+            ctx.fillRect(x, y, 1, barHeight);
+          }
+          
+          // Convert to data URL
+          const dataURL = canvas.toDataURL('image/png');
+          resolve(dataURL);
+          
+          // Cleanup
+          audioContext.close();
+        } catch (error) {
+          audioContext.close();
+          reject(error);
+        }
+      };
+      
+      fileReader.onerror = () => {
+        reject(new Error('Failed to read audio file'));
+      };
+      
+      fileReader.readAsArrayBuffer(audioFile);
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
+/**
  * Create a waveform thumbnail component
  * @param {string} waveformDataUrl - Data URL of the waveform image
  * @param {number} width - Display width

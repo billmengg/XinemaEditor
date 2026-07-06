@@ -1,5 +1,109 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { logOnce } from '../utils/consoleDeduplication';
+import { generateFullAudioWaveform } from '../utils/audioWaveform';
+
+// Helper function to determine if a clip is audio type
+const isAudioClipHelper = (clip) => {
+  if (!clip) return false;
+  const filename = clip.filename || clip.importedMedia?.filename || '';
+  return filename.toLowerCase().endsWith('.mp3');
+};
+
+// Audio Clip Component with waveform visualization
+function AudioClipComponent({ clip, startPixel, widthPixel, onClipSelect, setIsDraggingClip, setDragPreview, setMagneticPoints, setTimelineClips, pixelsToFrames, MAGNETIC_OFFSET_PIXELS }) {
+  const [waveformUrl, setWaveformUrl] = useState(clip.fullWaveformDataUrl || null);
+  
+  useEffect(() => {
+    if (isAudioClipHelper(clip) && !waveformUrl && clip.importedMedia?.file) {
+      // Generate full waveform for this audio clip
+      // Use a high resolution (2000px minimum) so it scales well
+      generateFullAudioWaveform(clip.importedMedia.file, 2000, 48)
+        .then(dataUrl => {
+          setWaveformUrl(dataUrl);
+          // Update clip with waveform data URL
+          setTimelineClips(prev => prev.map(c => 
+            c.id === clip.id ? { ...c, fullWaveformDataUrl: dataUrl } : c
+          ));
+        })
+        .catch(err => {
+          console.error('Error generating waveform:', err);
+        });
+    }
+  }, [clip.id, clip.importedMedia?.file, waveformUrl, setTimelineClips]);
+  
+  return (
+    <div
+      data-clip-id={clip.id}
+      onClick={(e) => {
+        e.stopPropagation();
+        if (onClipSelect && typeof onClipSelect === 'function') {
+          onClipSelect(clip);
+        }
+      }}
+      onMouseDown={(e) => {
+        e.stopPropagation();
+        // Start drag operation (same as video clips)
+        setIsDraggingClip(true);
+        
+        setDragPreview({
+          ...clip,
+          track: clip.track,
+          startPixel: clip.startPixel,
+          endPixel: clip.endPixel,
+          widthPixel: clip.widthPixel
+        });
+        
+        // Remove old magnetic points for this clip
+        setMagneticPoints(prev => {
+          const newMap = new Map(prev);
+          for (const [key, value] of newMap.entries()) {
+            if (value.track === clip.track && 
+                (value.frame === clip.startFrames + pixelsToFrames(MAGNETIC_OFFSET_PIXELS) ||
+                 value.frame === clip.endFrames + pixelsToFrames(MAGNETIC_OFFSET_PIXELS))) {
+              newMap.delete(key);
+            }
+          }
+          return newMap;
+        });
+      }}
+      style={{
+        position: "absolute",
+        left: `${startPixel}px`,
+        width: `${widthPixel}px`,
+        height: "48px",
+        background: waveformUrl ? `url(${waveformUrl})` : "#4a90e2",
+        backgroundSize: `${widthPixel}px 48px`,
+        backgroundPosition: "left center",
+        backgroundRepeat: "no-repeat",
+        border: "1px solid #357abd",
+        borderRadius: "2px",
+        cursor: "grab",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        color: "#fff",
+        fontSize: "10px",
+        fontWeight: "600",
+        overflow: "hidden",
+        zIndex: 5
+      }}
+      title={`${clip.filename} (Audio)`}
+    >
+      {/* Waveform background - already set in style.background */}
+      {/* Filename overlay - show on top of waveform */}
+      <div style={{
+        position: "relative",
+        zIndex: 1,
+        textShadow: "1px 1px 2px rgba(0,0,0,0.8)",
+        padding: "2px 4px",
+        background: waveformUrl ? "rgba(0,0,0,0.3)" : "transparent",
+        borderRadius: "2px"
+      }}>
+        {clip.filename}
+      </div>
+    </div>
+  );
+}
 
 export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTimelineClick, onTimelineClipsChange, onPlayheadChange, externalTimelineClips }) {
   const [activeTool, setActiveTool] = useState('cursor');
@@ -8,6 +112,14 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
   const [contextMenu, setContextMenu] = useState(null);
   const [playheadPosition, setPlayheadPosition] = useState(0); // Frame position
   const [isDraggingPlayhead, setIsDraggingPlayhead] = useState(false);
+  
+  // Expose dragging state globally for audio scrubbing
+  useEffect(() => {
+    window.isDraggingPlayhead = isDraggingPlayhead;
+    return () => {
+      window.isDraggingPlayhead = false;
+    };
+  }, [isDraggingPlayhead]);
   const [isManualPlayheadChange, setIsManualPlayheadChange] = useState(false);
   const [dragStartPlayheadPosition, setDragStartPlayheadPosition] = useState(null); // Playhead position when drag starts
   const [timelineClips, setTimelineClips] = useState([]); // Clips placed on timeline
@@ -90,12 +202,25 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
   };
 
   // Helper function to determine if a clip is audio type
+  // ONLY MP3 files are treated as audio - everything else goes to video tracks
   const isAudioClip = (clip) => {
     if (!clip) return false;
-    // Check if it's imported audio media
-    if (clip.importedMedia && clip.importedMedia.type === 'audio') return true;
-    if (clip.type === 'audio') return true;
-    // Arcane clips are always video
+    
+    // Check if it's an MP3 file by filename extension
+    // Check multiple possible locations for filename
+    const filename = clip.filename || 
+                     clip.importedMedia?.filename || 
+                     (clip.importedMedia && typeof clip.importedMedia === 'object' && clip.importedMedia.filename) ||
+                     '';
+    
+    const isMP3 = filename && filename.toLowerCase().endsWith('.mp3');
+    
+    // Removed debug logging to reduce console spam
+    
+    // Only MP3 files are audio - all other files (including other audio formats) go to video tracks
+    if (isMP3) return true;
+    
+    // Arcane clips and all other imported media are video
     return false;
   };
 
@@ -118,8 +243,12 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
 
     const isAudio = isAudioClip(clip);
     const isVideo = isVideoClip(clip);
+    
+    // Debug logging in getTargetTrack (only log once per drag to reduce spam)
+    // Removed excessive logging - will log only in specific cases
 
-    // Audio clips can only go to audio tracks
+    // Audio clips (MP3 only) can only go to audio tracks
+    // Apply chiral logic: if dragged outside audio tracks, snap to highest/lowest track
     if (isAudio) {
       // Calculate relative Y position from timeline top
       const relativeY = mouseY - timelineRect.top;
@@ -128,21 +257,29 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
       const videoTracksCount = videoTracks.length;
       const videoTracksTotalHeight = videoTracksCount * videoTrackHeight;
       const audioTrackStartY = trackStartY + videoTracksTotalHeight;
+      const audioTracksTotalHeight = audioTracks.length * videoTrackHeight;
+      const audioTracksEndY = audioTrackStartY + audioTracksTotalHeight;
       
-      // Find which audio track the cursor is over
-      const audioTrackIndex = Math.floor((relativeY - audioTrackStartY) / videoTrackHeight);
-      
-      // Clamp to valid audio track range
-      if (relativeY >= audioTrackStartY && relativeY < audioTrackStartY + (audioTracks.length * videoTrackHeight)) {
-        // Cursor is within audio tracks area
-        const targetAudioTrack = Math.max(1, Math.min(audioTrackIndex + 1, audioTracks.length));
-        return audioTracks[targetAudioTrack - 1]; // Return actual track number
-      } else if (relativeY < audioTrackStartY) {
-        // Cursor is above audio tracks - default to first audio track
-        return audioTracks[0];
+      // Check if cursor is within audio tracks range
+      if (relativeY >= audioTrackStartY && relativeY < audioTracksEndY) {
+        // Cursor is within audio tracks area - use normal track assignment
+        const audioTrackIndex = Math.floor((relativeY - audioTrackStartY) / videoTrackHeight);
+        const targetAudioTrackIndex = Math.max(0, Math.min(audioTrackIndex, audioTracks.length - 1));
+        const selectedTrack = audioTracks[targetAudioTrackIndex];
+        return selectedTrack; // Return actual track number from audioTracks array
       } else {
-        // Cursor is below audio tracks - default to last audio track
-        return audioTracks[audioTracks.length - 1];
+        // Cursor is outside audio tracks range - apply chiral logic
+        // If cursor is above audio tracks, lock to upmost (highest) audio track
+        // If cursor is below audio tracks, lock to bottommost (lowest) audio track
+        let selectedTrack;
+        if (relativeY < audioTrackStartY) {
+          // Above audio tracks - lock to upmost track (highest number)
+          selectedTrack = Math.max(...audioTracks);
+        } else {
+          // Below audio tracks - lock to bottommost track (lowest number)
+          selectedTrack = Math.min(...audioTracks);
+        }
+        return selectedTrack;
       }
     }
 
@@ -498,6 +635,11 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
     // Only prevent default for left clicks, allow right clicks for context menu
     if (e.button === 0) { // Left mouse button
       e.preventDefault(); // Prevent default selection behavior
+      
+      // If currently playing, IMMEDIATELY pause before moving playhead
+      if (isPlaying && onTimelineClick) {
+        onTimelineClick(); // Pause immediately
+      }
     }
     
     const timelineRect = e.currentTarget.getBoundingClientRect();
@@ -536,10 +678,8 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
     if (e.button === 0) { // Left mouse button
       e.preventDefault(); // Prevent default behavior, don't start dragging on click
       
-      // If currently playing, stop when clicking timeline
-      if (isPlaying && onTimelineClick) {
-        onTimelineClick();
-      }
+      // Note: Pausing is now handled in handleTimelineMouseDown for immediate response
+      // This click handler is kept for any additional click-specific logic
     }
     
     // Trigger frame generation for timeline clicks
@@ -1739,14 +1879,27 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
     return prerenderData;
   };
 
+  // Track which prerender areas have already been sent to prevent duplicate requests
+  const sentPrerenderAreasRef = useRef(new Set());
+  
   // Process all prerender areas and generate frames
   const processPrerenderAreas = async () => {
     if (prerenderAreas.length === 0 || isDraggingClip) return;
     
     
     for (const area of prerenderAreas) {
+      // Create a key for each prerender area to track if it's been sent
+      const areaKey = `${area.startFrames}-${area.endFrames}`;
+      
+      // Skip if this area has already been sent
+      if (sentPrerenderAreasRef.current.has(areaKey)) {
+        continue;
+      }
+      
       const prerenderData = await generatePrerenderFrames(area);
       if (prerenderData) {
+        // Mark this area as sent before making the request
+        sentPrerenderAreasRef.current.add(areaKey);
         
         // Send to backend for frame extraction and compositing
         try {
@@ -1773,10 +1926,22 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
             window.dispatchEvent(event);
           } else {
             console.error('Prerender failed:', response.statusText);
+            // Remove from sent set if it failed so it can be retried
+            sentPrerenderAreasRef.current.delete(areaKey);
           }
         } catch (error) {
           console.error('Prerender error:', error);
+          // Remove from sent set if it failed so it can be retried
+          sentPrerenderAreasRef.current.delete(areaKey);
         }
+      }
+    }
+    
+    // Clean up sent areas that no longer exist in prerenderAreas
+    const currentAreaKeys = new Set(prerenderAreas.map(area => `${area.startFrames}-${area.endFrames}`));
+    for (const key of sentPrerenderAreasRef.current) {
+      if (!currentAreaKeys.has(key)) {
+        sentPrerenderAreasRef.current.delete(key);
       }
     }
   };
@@ -1975,19 +2140,12 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
   }, [playheadPosition, onTimelineClick]);
 
   // Check if playhead is in a prerender area and trigger prerendering if needed
+  // DISABLED: This was causing too many prerender requests
+  // Prerender now only happens when clips are added/changed, not on every playhead movement
   const checkAndTriggerPrerender = (framePosition) => {
-    // Don't trigger prerender during drag operations
-    if (isDraggingClip) {
-      return;
-    }
-    
-    const isInPrerenderArea = prerenderAreas.some(area => 
-      framePosition >= area.startFrames && framePosition <= area.endFrames
-    );
-    
-    if (isInPrerenderArea && prerenderAreas.length > 0) {
-      processPrerenderAreas();
-    }
+    // Don't trigger prerender on playhead movement - only when clips change
+    // This prevents constant backend requests
+    return;
   };
 
   // Handle trim handle mouse down
@@ -2004,10 +2162,12 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
     
     // Start trim operation
     
-    // Get the static clip data for constraints
-    const staticData = getStaticClipData(currentClip.character, currentClip.filename);
-    if (!staticData) return;
-    
+    // Get the static clip data for constraints (falls back to clip's own data for generated clips)
+    const staticData = getStaticClipData(currentClip.character, currentClip.filename) ?? {
+      originalStartFrames: currentClip.originalStartFrames ?? 0,
+      originalEndFrames: currentClip.originalEndFrames ?? currentClip.durationFrames ?? Math.round((currentClip.duration || 5) * 60),
+    };
+
     // Store the current data for trimming
     // Always use current visual position (which includes crops) as the starting point
     const trimmingData = {
@@ -2058,10 +2218,6 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
     // Get the current clip data from timelineClips to ensure we have the latest state
     const currentClip = timelineClips.find(clip => clip.id === trimmingClip.id);
     if (!currentClip) return;
-    
-    // Get the static clip data for constraints
-    const staticData = getStaticClipData(currentClip.character, currentClip.filename);
-    if (!staticData) return;
     
     // Calculate crop offsets based on how much we moved the trim handles from their current position
     const currentLeftCrop = currentClip.leftCropFrames ?? 0;
@@ -2541,13 +2697,30 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
     }
   };
 
-  // Debug: Log prerender frame ranges when they change
+  // Debounced prerender processing - only process when clips actually change
+  const prerenderTimeoutRef = useRef(null);
+  
   useEffect(() => {
-    if (prerenderAreas.length > 0 && !isDraggingClip && timelineClips.length > 0) {
-      // Only log when clips are actually placed, not during drag operations
-      // Process prerender areas when clips change (but not during drag operations)
-      processPrerenderAreas();
+    // Clear any pending prerender requests
+    if (prerenderTimeoutRef.current) {
+      clearTimeout(prerenderTimeoutRef.current);
     }
+    
+    // Debounce prerender requests - only send after clips have been stable for 2 seconds
+    if (prerenderAreas.length > 0 && !isDraggingClip && timelineClips.length > 0) {
+      prerenderTimeoutRef.current = setTimeout(() => {
+        // Only process if still not dragging and clips haven't changed
+        if (!isDraggingClip) {
+          processPrerenderAreas();
+        }
+      }, 2000); // Wait 2 seconds after clips change before sending prerender requests
+    }
+    
+    return () => {
+      if (prerenderTimeoutRef.current) {
+        clearTimeout(prerenderTimeoutRef.current);
+      }
+    };
   }, [timelineClips.length, isDraggingClip]); // Watch timelineClips.length instead of prerenderAreas
 
   // Keep magneticPointsRef in sync with magneticPoints state
@@ -2658,15 +2831,14 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
         
         // Allow dropping even if to the left of timeline content (will be constrained to left border)
         if (relativeX >= -1000) { // Allow dropping anywhere within reasonable bounds
-          // Use track from drop event, or calculate based on clip type and cursor position
-          let targetTrack = track;
-          if (!targetTrack) {
-            // Calculate target track based on clip type and cursor position
-            targetTrack = getTargetTrack(clip, clientY, timelineRect);
-          }
-          // Validate that the track matches the clip type
+          // Always calculate target track based on clip type and cursor position
+          // This ensures MP3 files go to audio tracks and everything else goes to video tracks
+          let targetTrack = getTargetTrack(clip, clientY, timelineRect);
+          
+          // Validate that the track matches the clip type (safety check)
           const isAudio = isAudioClip(clip);
           const isVideo = isVideoClip(clip);
+          
           if (isAudio && !audioTracks.includes(targetTrack)) {
             // Force audio clips to first audio track if invalid track was provided
             targetTrack = audioTracks[0];
@@ -2916,19 +3088,32 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
         }, 50);
       };
       
+      // Throttle drag over handler for performance
+      let lastDragOverTime = 0;
+      const DRAG_OVER_THROTTLE = 16; // ~60fps
+      
       const handleTimelineDragOver = (e) => {
         // Only prevent default for drag operations, allow right clicks
         if (e.type === 'dragover') {
           e.preventDefault();
         }
         
+        // Throttle to improve performance
+        const now = Date.now();
+        if (now - lastDragOverTime < DRAG_OVER_THROTTLE) {
+          return;
+        }
+        lastDragOverTime = now;
+        
         // Set clip dragging state
         setIsDraggingClip(true);
         
-        // Trigger frame generation when clip drag starts
-        setTimeout(() => {
-          extractSingleFrame(playheadPosition);
-        }, 50);
+        // Trigger frame generation when clip drag starts (only once)
+        if (!dragPreview) {
+          setTimeout(() => {
+            extractSingleFrame(playheadPosition);
+          }, 50);
+        }
         
         // Take snapshot of magnetic points when dragging starts
         // No snapshot needed - magnetism uses live data
@@ -2944,8 +3129,14 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
           
           // Check if mouse is over timeline area
           if (relativeX >= 0 && mouseY >= 60) { // 60px to account for top bar and time ruler
-            // Get clip data from the drag preview element
-            const clipData = JSON.parse(draggedClip.dataset.clip || '{}');
+            // Get clip data from the drag preview element (cache to avoid repeated parsing)
+            let clipData;
+            if (draggedClip._cachedClipData) {
+              clipData = draggedClip._cachedClipData;
+            } else {
+              clipData = JSON.parse(draggedClip.dataset.clip || '{}');
+              draggedClip._cachedClipData = clipData; // Cache for performance
+            }
             
             // Handle both numeric duration (from ClipList) and MM:SS format
             let duration = 5; // Default fallback
@@ -3004,8 +3195,12 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
                 endPixel: endPixel,
                 widthPixel: widthPixel,
                 character: clipData.character || 'Clip',
+                filename: clipData.filename || clipData.character || 'Clip', // Include filename for audio clips
                 duration: duration,
-                track: targetTrack
+                track: targetTrack,
+                // Preserve clip type information for audio detection
+                type: clipData.type,
+                importedMedia: clipData.importedMedia
               };
               
               const actualPositionData = {
@@ -3013,8 +3208,11 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
                 endPixel: actualEndPixel,
                 widthPixel: actualWidthPixel,
                 character: clipData.character || 'Clip',
+                filename: clipData.filename || clipData.character || 'Clip',
                 duration: duration,
-                track: targetTrack
+                track: targetTrack,
+                type: clipData.type,
+                importedMedia: clipData.importedMedia
               };
               
               setDragPreview(dragPreviewData);
@@ -3093,8 +3291,11 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
                   endPixel: endPixel,
                   widthPixel: widthPixel,
                   character: customDragEvent.clip.character || 'Clip',
+                  filename: customDragEvent.clip.filename || customDragEvent.clip.character || 'Clip',
                   duration: duration,
-                  track: targetTrack
+                  track: targetTrack,
+                  type: customDragEvent.clip.type,
+                  importedMedia: customDragEvent.clip.importedMedia
                 };
                 setDragPreview(dragPreviewData);
                 // Update dragged clip magnetic points for yellow lines
@@ -3129,7 +3330,18 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
         }
       };
       
+      // Throttle drag over event handler for performance
+      let lastDragOverEventTime = 0;
+      const DRAG_OVER_EVENT_THROTTLE = 16; // ~60fps
+      
       const handleTimelineDragOverEvent = (e) => {
+        // Throttle to improve performance
+        const now = Date.now();
+        if (now - lastDragOverEventTime < DRAG_OVER_EVENT_THROTTLE) {
+          return;
+        }
+        lastDragOverEventTime = now;
+        
         const { clip, clientX, clientY, ctrlKey, metaKey } = e.detail;
         const timelineRect = timelineElement.getBoundingClientRect();
         const mouseX = clientX - timelineRect.left;
@@ -3224,10 +3436,13 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
               endPixel: endPixel,
               widthPixel: widthPixel,
               character: clip.character || 'Clip',
+              filename: clip.filename || clip.character || 'Clip',
               duration: duration,
               track: targetTrack,
               multiTrack: isMultiTrack,
-              mouseY: mouseY // Add mouse Y for debugging
+              mouseY: mouseY, // Add mouse Y for debugging
+              type: clip.type,
+              importedMedia: clip.importedMedia
             };
             setDragPreview(dragPreviewData);
             // Update dragged clip magnetic points for yellow lines
@@ -4049,7 +4264,10 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
 >
                {/* Render clips on this track */}
                {timelineClips
-                 .filter(clip => clip.track === trackNum)
+                 .filter(clip => {
+                   // Only show clips on this track that are video clips (not audio)
+                   return clip.track === trackNum && isVideoClip(clip);
+                 })
                  .map(clip => {
                    // Use trimming clip data if this clip is being trimmed, otherwise use visual data
                    const displayClip = trimmingClip && trimmingClip.id === clip.id ? trimmingClip : {
@@ -4248,8 +4466,8 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
                    );
                  })}
                
-               {/* Drag Preview - show only on target track */}
-               {dragPreview && dragPreview.track === trackNum && (
+               {/* Drag Preview - show only on target track for video clips (exclude audio) */}
+               {dragPreview && dragPreview.track === trackNum && !isAudioClip(dragPreview) && (
                  <div
                    style={{
                      position: "absolute",
@@ -4309,7 +4527,69 @@ export default function Timeline({ onClipSelect, selectedClip, isPlaying, onTime
              <div style={{
                flex: 1,
                background: "#f8f9fa",
+               position: "relative"
              }}>
+               {/* Render clips on this audio track */}
+               {timelineClips
+                 .filter(clip => {
+                   // Only show clips on this track that are audio clips (MP3)
+                   return clip.track === trackNum && isAudioClip(clip);
+                 })
+                 .map(clip => {
+                   // Use trimming clip data if this clip is being trimmed, otherwise use visual data
+                   const displayClip = trimmingClip && trimmingClip.id === clip.id ? trimmingClip : {
+                     ...clip,
+                     startFrames: clip.startFrames,
+                     endFrames: clip.endFrames
+                   };
+                   
+                   const startPixel = framesToPixels(displayClip.startFrames);
+                   const endPixel = framesToPixels(displayClip.endFrames);
+                   const widthPixel = endPixel - startPixel;
+                   
+                   return (
+                     <AudioClipComponent
+                       key={clip.id}
+                       clip={clip}
+                       startPixel={startPixel}
+                       widthPixel={widthPixel}
+                       onClipSelect={onClipSelect}
+                       setIsDraggingClip={setIsDraggingClip}
+                       setDragPreview={setDragPreview}
+                       setMagneticPoints={setMagneticPoints}
+                       setTimelineClips={setTimelineClips}
+                       pixelsToFrames={pixelsToFrames}
+                       MAGNETIC_OFFSET_PIXELS={MAGNETIC_OFFSET_PIXELS}
+                     />
+                   );
+                 })}
+               
+               {/* Drag Preview - show only on target track for audio clips */}
+               {dragPreview && dragPreview.track === trackNum && isAudioClip(dragPreview) && (
+                 <div
+                   style={{
+                     position: "absolute",
+                     left: `${dragPreview.startPixel}px`,
+                     top: "1px",
+                     width: `${dragPreview.widthPixel}px`,
+                     height: "48px",
+                     background: "rgba(74, 144, 226, 0.4)",
+                     border: "2px dashed #4a90e2",
+                     borderRadius: "2px",
+                     display: "flex",
+                     alignItems: "center",
+                     justifyContent: "center",
+                     color: "#4a90e2",
+                     fontSize: "10px",
+                     fontWeight: "600",
+                     pointerEvents: "none",
+                     userSelect: "none",
+                     zIndex: 10
+                   }}
+                 >
+                   {dragPreview.filename || dragPreview.character || 'Audio Clip'}
+                 </div>
+               )}
              </div>
           </div>
         ))}

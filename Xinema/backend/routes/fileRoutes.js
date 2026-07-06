@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { getAllClips, getVideoFile, generateThumbnail, getClipDuration, processPrerender, streamFrameDirect, getVideoInfo, getVideoInfoRoute, preExtractFrames, generateClipThumbnails } = require('../controllers/fileController');
+const { getAllClips, getVideoFile, generateThumbnail, getClipDuration, processPrerender, streamFrameDirect, getVideoInfo, getVideoInfoRoute, preExtractFrames, generateClipThumbnails, matchScript } = require('../controllers/fileController');
 
 // GET /api/files
 router.get('/files', getAllClips);
@@ -30,6 +30,9 @@ router.post('/pre-extract/:character/:filename', preExtractFrames);
 
 // POST /api/clip-thumbnails - Generate thumbnails for specific clip (prevents duplicates)
 router.post('/clip-thumbnails', generateClipThumbnails);
+
+// POST /api/match-script - Match script sentences to clips via Python keyword matcher
+router.post('/match-script', matchScript);
 
 // Test endpoint
 router.get('/test', (req, res) => {

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import PropTypes from 'prop-types';
 import { TARGET_WIDTH, TARGET_HEIGHT, TARGET_ASPECT_RATIO_CSS } from '../utils/constants';
+import { extractAudioFrame, audioBufferToBlobUrl } from '../utils/audioFrameExtractor';
 
 // INSTANT PREVIEW HACK - Uses actual MP4 video instead of individual frames
 // Timeline controls video currentTime for instant scrubbing
@@ -18,12 +19,33 @@ const TimelinePreview = ({
   
   // Cache for last shown frame per clip (clip address -> frame position)
   const clipFrameCache = useRef(new Map()); // key: "character/filename", value: lastFramePosition
-  
+
+  // Refs that mirror state — used inside event handlers to avoid stale closures
+  // without requiring the listener to re-register on every state change
+  const currentClipRef = useRef(null);
+  const isVideoLoadedRef = useRef(false);
+
   // Refs for video control
   const videoRef = useRef(null);
   const seekTimeoutRef = useRef(null);
   const lastSeekTimeRef = useRef(0);
   const isPlayingRef = useRef(false);
+  
+  // Refs for audio control (frame-based during dragging)
+  const audioElementsRef = useRef(new Map()); // Map of clipId -> HTMLAudioElement
+  const lastAudioSeekTimeRef = useRef(0);
+  const activeAudioClipsRef = useRef(new Set()); // Track which audio clips are currently playing
+  const lastPlayheadPositionRef = useRef(0); // Track last playhead position to detect when it stops moving
+  const audioPauseTimeoutRef = useRef(null); // Timeout to pause audio when position stabilizes
+  const lastPositionUpdateTimeRef = useRef(0); // Track when position was last updated
+  const audioFrameUrlsRef = useRef(new Map()); // Map of "clipId/frame" -> blob URL (for cleanup)
+  const loadingAudioFramesRef = useRef(new Set()); // Track frames currently being loaded
+  const frameAudioStopTimeoutRef = useRef(new Map()); // Map of clipId -> timeout to stop frame audio
+
+  // Keep refs in sync with state so event handlers always have fresh values
+  // without needing to be in the effect dependency array
+  useEffect(() => { currentClipRef.current = currentClip; }, [currentClip]);
+  useEffect(() => { isVideoLoadedRef.current = isVideoLoaded; }, [isVideoLoaded]);
 
   // Debug timeline clips - only log when clips change
   if (timelineClips.length > 0 && timelineClips.length !== (window.lastClipCount || 0)) {
@@ -58,6 +80,18 @@ const TimelinePreview = ({
       setIsPlaying(false);
       isPlayingRef.current = false;
       
+      // Pause video element
+      if (videoRef.current && !videoRef.current.paused) {
+        videoRef.current.pause();
+      }
+      
+      // Pause all audio elements (Premiere Pro style)
+      audioElementsRef.current.forEach(audioElement => {
+        if (!audioElement.paused) {
+          audioElement.pause();
+        }
+      });
+      
       // No local animation to clean up - Timeline handles everything
       
       // Dispatch stop event to Timeline
@@ -69,6 +103,15 @@ const TimelinePreview = ({
       // Start playing - dispatch event to Timeline
       setIsPlaying(true);
       isPlayingRef.current = true;
+      
+      // Play all active audio elements (Premiere Pro style)
+      audioElementsRef.current.forEach(audioElement => {
+        if (audioElement.readyState >= 2 && audioElement.paused) {
+          audioElement.play().catch(err => {
+            // Audio play failed (might be autoplay restrictions)
+          });
+        }
+      });
       
       // Dispatch start event to Timeline - let it handle all the animation
       const startEvent = new CustomEvent('timelineStartPlayback', {
@@ -330,6 +373,481 @@ const TimelinePreview = ({
     // Update video time completed
   }, [timelineClips, currentClip, isVideoLoaded, isPlayingRef]);
 
+  // Helper function to check if a clip is audio (MP3)
+  const isAudioClip = (clip) => {
+    if (!clip) return false;
+    const filename = clip.filename || clip.importedMedia?.filename || '';
+    return filename.toLowerCase().endsWith('.mp3');
+  };
+
+  // Update audio playback based on playhead position (Premiere Pro style)
+  const updateAudioPlayback = useCallback((timelinePosition, isDragging = false) => {
+    const isDuringPlayback = isPlayingRef.current;
+    
+    // Track playhead position changes to detect when scrubbing stops
+    const positionChanged = timelinePosition !== lastPlayheadPositionRef.current;
+    const now = Date.now();
+    
+    // If position changed, update timestamp
+    if (positionChanged) {
+      lastPlayheadPositionRef.current = timelinePosition;
+      lastPositionUpdateTimeRef.current = now;
+      
+      // Clear any existing pause timeout since position is changing
+      if (audioPauseTimeoutRef.current) {
+        clearTimeout(audioPauseTimeoutRef.current);
+        audioPauseTimeoutRef.current = null;
+      }
+    }
+    
+    // During smooth playback (not scrubbing), don't seek audio - let it play naturally
+    if (isDuringPlayback && !isDragging) {
+      // During smooth playback, only check if clips need to start/stop
+      // Don't seek - let audio play naturally and continuously
+      
+      // Find all audio clips at this timeline position
+      const activeAudioClips = timelineClips.filter(clip => {
+        if (!isAudioClip(clip)) return false;
+        
+        const clipStart = clip.instanceStartFrames ?? clip.startFrames;
+        const clipEnd = clip.instanceEndFrames ?? clip.endFrames;
+        
+        return timelinePosition >= clipStart && timelinePosition <= clipEnd;
+      });
+
+      // Update active audio clips set
+      const currentActiveIds = new Set(activeAudioClips.map(clip => clip.id));
+      
+      // Start audio for newly active clips
+      activeAudioClips.forEach(clip => {
+        const clipId = clip.id;
+        let audioElement = audioElementsRef.current.get(clipId);
+        
+        if (!audioElement) {
+          // New clip just became active - create and start it
+          const clipStart = clip.instanceStartFrames ?? clip.startFrames;
+          const timelineFrameRate = 60;
+          const relativeFrames = timelinePosition - clipStart;
+          const relativeTime = relativeFrames / timelineFrameRate;
+          
+          audioElement = document.createElement('audio');
+          audioElement.preload = 'auto';
+          audioElement.volume = 1.0;
+          
+          let audioUrl;
+          if (clip.type === 'imported' && clip.importedMedia && clip.importedMedia.url) {
+            audioUrl = clip.importedMedia.url;
+          } else if (clip.type === 'imported' && clip.importedMedia && clip.importedMedia.file) {
+            audioUrl = URL.createObjectURL(clip.importedMedia.file);
+          } else {
+            return; // Skip non-imported audio clips
+          }
+          
+          audioElement.src = audioUrl;
+          audioElementsRef.current.set(clipId, audioElement);
+          
+          // Wait for metadata, then start at correct position
+          const startAudio = () => {
+            const maxAudioTime = audioElement.duration || 0;
+            const constrainedTime = Math.min(Math.max(relativeTime, 0), maxAudioTime);
+            audioElement.currentTime = constrainedTime;
+            
+            // Always play during playback - don't pause
+            audioElement.play().catch(err => {
+              // Audio play failed
+            });
+          };
+          
+          if (audioElement.readyState >= 2) {
+            startAudio();
+          } else {
+            audioElement.addEventListener('loadedmetadata', startAudio, { once: true });
+          }
+        } else {
+          // Clip already exists - ensure it's playing continuously
+          // Don't seek during playback - let it play naturally
+          if (audioElement.paused && audioElement.readyState >= 2) {
+            audioElement.play().catch(err => {
+              // Audio play failed
+            });
+          }
+        }
+      });
+      
+      // Stop audio for clips that are no longer active
+      audioElementsRef.current.forEach((audioElement, clipId) => {
+        if (!currentActiveIds.has(clipId)) {
+          audioElement.pause();
+          audioElement.src = '';
+          audioElement.load();
+          audioElementsRef.current.delete(clipId);
+        }
+      });
+      
+      activeAudioClipsRef.current = currentActiveIds;
+      return; // Don't seek during smooth playback - let it play continuously
+    }
+    
+    // When dragging, use continuous seeking (only if play button is NOT pressed)
+    if (isDragging && !isDuringPlayback) {
+      // Scrubbing mode during dragging - seek to match playhead position
+      const timeSinceLastUpdate = now - lastPositionUpdateTimeRef.current;
+      const isPlayheadMoving = timeSinceLastUpdate < 200; // Consider moving if updated within last 200ms
+      
+      // Rate limit seeks during dragging to prevent glitches
+      const timeSinceLastSeek = now - lastAudioSeekTimeRef.current;
+      const minSeekInterval = 16; // 16ms for dragging (~60fps)
+      
+      if (timeSinceLastSeek < minSeekInterval) {
+        return; // Rate limited
+      }
+      
+      lastAudioSeekTimeRef.current = now;
+      
+      // If playhead has stopped moving, pause all audio immediately and clear timeouts
+      if (!isPlayheadMoving) {
+        audioElementsRef.current.forEach((audioElement, clipId) => {
+          // Clear any pending stop timeout
+          if (frameAudioStopTimeoutRef.current.has(clipId)) {
+            clearTimeout(frameAudioStopTimeoutRef.current.get(clipId));
+            frameAudioStopTimeoutRef.current.delete(clipId);
+          }
+          
+          if (!audioElement.paused) {
+            audioElement.pause();
+          }
+        });
+        return; // Don't update audio when playhead has stopped moving
+      }
+      
+      // Clear any existing pause timeout since playhead is moving
+      if (audioPauseTimeoutRef.current) {
+        clearTimeout(audioPauseTimeoutRef.current);
+        audioPauseTimeoutRef.current = null;
+      }
+      
+      // Find all audio clips at this timeline position
+      const activeAudioClips = timelineClips.filter(clip => {
+        if (!isAudioClip(clip)) return false;
+        
+        const clipStart = clip.instanceStartFrames ?? clip.startFrames;
+        const clipEnd = clip.instanceEndFrames ?? clip.endFrames;
+        
+        return timelinePosition >= clipStart && timelinePosition <= clipEnd;
+      });
+
+      // Update active audio clips set
+      const currentActiveIds = new Set(activeAudioClips.map(clip => clip.id));
+      activeAudioClipsRef.current = currentActiveIds;
+
+      // Stop and remove audio elements for clips that are no longer active
+      audioElementsRef.current.forEach((audioElement, clipId) => {
+        if (!currentActiveIds.has(clipId)) {
+          audioElement.pause();
+          audioElement.src = '';
+          audioElement.load();
+          audioElementsRef.current.delete(clipId);
+        }
+      });
+
+      // Update or create audio elements for active clips
+      // During dragging, limit each preview to 1 frame duration
+      activeAudioClips.forEach(clip => {
+        const clipId = clip.id;
+        const clipStart = clip.instanceStartFrames ?? clip.startFrames;
+        
+        // Calculate audio time within the clip
+        const timelineFrameRate = 60;
+        const relativeFrames = timelinePosition - clipStart;
+        const relativeTime = relativeFrames / timelineFrameRate;
+        const frameDuration = 1 / timelineFrameRate; // 1 frame = ~16.67ms at 60fps
+        
+        // Get or create audio element
+        let audioElement = audioElementsRef.current.get(clipId);
+        
+        if (!audioElement) {
+          // Create new audio element
+          audioElement = document.createElement('audio');
+          audioElement.preload = 'auto';
+          audioElement.volume = 1.0;
+          
+          let audioUrl;
+          if (clip.type === 'imported' && clip.importedMedia && clip.importedMedia.url) {
+            audioUrl = clip.importedMedia.url;
+          } else if (clip.type === 'imported' && clip.importedMedia && clip.importedMedia.file) {
+            audioUrl = URL.createObjectURL(clip.importedMedia.file);
+          } else {
+            return; // Skip non-imported audio clips
+          }
+          
+          audioElement.src = audioUrl;
+          audioElementsRef.current.set(clipId, audioElement);
+          
+          // Wait for audio to load before setting position
+          audioElement.addEventListener('loadedmetadata', () => {
+            const maxAudioTime = audioElement.duration || 0;
+            const constrainedTime = Math.min(Math.max(relativeTime, 0), maxAudioTime);
+            audioElement.currentTime = constrainedTime;
+            
+            // Always play when dragging (playhead is moving since we're in this branch)
+            audioElement.play().catch(err => {
+              // Audio play failed
+            });
+            
+            // Stop after 1 frame duration - this ensures it stops when dragging stops
+            const stopTimeout = setTimeout(() => {
+              if (audioElement && !audioElement.paused) {
+                audioElement.pause();
+              }
+              if (frameAudioStopTimeoutRef.current.has(clipId)) {
+                frameAudioStopTimeoutRef.current.delete(clipId);
+              }
+            }, frameDuration * 1000 + 5); // 1 frame + 5ms buffer
+            
+            frameAudioStopTimeoutRef.current.set(clipId, stopTimeout);
+          }, { once: true });
+          
+          // If already loaded, set time immediately
+          if (audioElement.readyState >= 2) {
+            const maxAudioTime = audioElement.duration || 0;
+            const constrainedTime = Math.min(Math.max(relativeTime, 0), maxAudioTime);
+            audioElement.currentTime = constrainedTime;
+            
+            // Always play when dragging (playhead is moving since we're in this branch)
+            audioElement.play().catch(err => {
+              // Audio play failed
+            });
+            
+            // Stop after 1 frame duration
+            const stopTimeout = setTimeout(() => {
+              if (audioElement && !audioElement.paused) {
+                audioElement.pause();
+              }
+              if (frameAudioStopTimeoutRef.current.has(clipId)) {
+                frameAudioStopTimeoutRef.current.delete(clipId);
+              }
+            }, frameDuration * 1000 + 5); // 1 frame + 5ms buffer
+            
+            frameAudioStopTimeoutRef.current.set(clipId, stopTimeout);
+          }
+        } else {
+          // Update existing audio element position (when dragging/scrubbing)
+          if (audioElement.readyState >= 2) {
+            const maxAudioTime = audioElement.duration || 0;
+            const constrainedTime = Math.min(Math.max(relativeTime, 0), maxAudioTime);
+            const currentTime = audioElement.currentTime || 0;
+            const timeDifference = Math.abs(constrainedTime - currentTime);
+            
+            // Always seek during dragging to match playhead position
+            // Clear any existing stop timeout before starting new playback
+            if (frameAudioStopTimeoutRef.current.has(clipId)) {
+              clearTimeout(frameAudioStopTimeoutRef.current.get(clipId));
+              frameAudioStopTimeoutRef.current.delete(clipId);
+            }
+            
+            // Seek to new position if difference is significant
+            if (timeDifference > 0.005) { // 5ms threshold
+              audioElement.currentTime = constrainedTime;
+            }
+            
+            // Always play when dragging (playhead is moving since we passed the early return check)
+            // But limit playback to 1 frame duration
+            if (audioElement.paused) {
+              audioElement.play().catch(err => {
+                // Audio play failed
+              });
+              
+              // Stop after 1 frame duration - this ensures it stops when dragging stops
+              const stopTimeout = setTimeout(() => {
+                if (audioElement && !audioElement.paused) {
+                  audioElement.pause();
+                }
+                if (frameAudioStopTimeoutRef.current.has(clipId)) {
+                  frameAudioStopTimeoutRef.current.delete(clipId);
+                }
+              }, frameDuration * 1000 + 5); // 1 frame + 5ms buffer
+              
+              frameAudioStopTimeoutRef.current.set(clipId, stopTimeout);
+            } else {
+              // Audio is already playing - restart the 1-frame timeout
+              const stopTimeout = setTimeout(() => {
+                if (audioElement && !audioElement.paused) {
+                  audioElement.pause();
+                }
+                if (frameAudioStopTimeoutRef.current.has(clipId)) {
+                  frameAudioStopTimeoutRef.current.delete(clipId);
+                }
+              }, frameDuration * 1000 + 5); // 1 frame + 5ms buffer
+              
+              frameAudioStopTimeoutRef.current.set(clipId, stopTimeout);
+            }
+          }
+        }
+      });
+      
+      return; // Don't continue with normal scrubbing logic during dragging
+    }
+    
+    // When scrubbing (not dragging, frame-by-frame), use normal seeking
+    // Rate limit seeks to prevent glitches
+    const timeSinceLastSeek = now - lastAudioSeekTimeRef.current;
+    const minSeekInterval = 33; // 33ms for frame-by-frame (~30fps)
+
+    if (timeSinceLastSeek < minSeekInterval) {
+      return; // Rate limited
+    }
+
+    lastAudioSeekTimeRef.current = now;
+
+    // Find all audio clips at this timeline position
+    const activeAudioClips = timelineClips.filter(clip => {
+      if (!isAudioClip(clip)) return false;
+      
+      const clipStart = clip.instanceStartFrames ?? clip.startFrames;
+      const clipEnd = clip.instanceEndFrames ?? clip.endFrames;
+      
+      return timelinePosition >= clipStart && timelinePosition <= clipEnd;
+    });
+
+    // Update active audio clips set
+    const currentActiveIds = new Set(activeAudioClips.map(clip => clip.id));
+    activeAudioClipsRef.current = currentActiveIds;
+
+    // Stop and remove audio elements for clips that are no longer active
+    audioElementsRef.current.forEach((audioElement, clipId) => {
+      if (!currentActiveIds.has(clipId)) {
+        audioElement.pause();
+        audioElement.src = '';
+        audioElement.load();
+        audioElementsRef.current.delete(clipId);
+      }
+    });
+
+    // Update or create audio elements for active clips
+    activeAudioClips.forEach(clip => {
+      const clipId = clip.id;
+      const clipStart = clip.instanceStartFrames ?? clip.startFrames;
+      
+      // Calculate audio time within the clip
+      const timelineFrameRate = 60;
+      const relativeFrames = timelinePosition - clipStart;
+      const relativeTime = relativeFrames / timelineFrameRate;
+      
+      // Get or create audio element
+      let audioElement = audioElementsRef.current.get(clipId);
+      
+      if (!audioElement) {
+        // Create new audio element
+        audioElement = document.createElement('audio');
+        audioElement.preload = 'auto';
+        audioElement.volume = 1.0;
+        
+        let audioUrl;
+        if (clip.type === 'imported' && clip.importedMedia && clip.importedMedia.url) {
+          audioUrl = clip.importedMedia.url;
+        } else if (clip.type === 'imported' && clip.importedMedia && clip.importedMedia.file) {
+          audioUrl = URL.createObjectURL(clip.importedMedia.file);
+        } else {
+          return; // Skip non-imported audio clips
+        }
+        
+        audioElement.src = audioUrl;
+        audioElementsRef.current.set(clipId, audioElement);
+        
+        // Wait for audio to load before setting position
+        audioElement.addEventListener('loadedmetadata', () => {
+          const maxAudioTime = audioElement.duration || 0;
+          const constrainedTime = Math.min(Math.max(relativeTime, 0), maxAudioTime);
+          audioElement.currentTime = constrainedTime;
+          
+          // Play when scrubbing (frame-by-frame, not during playback)
+          if (!isDuringPlayback && positionChanged) {
+            audioElement.play().catch(err => {
+              // Audio play failed
+            });
+          }
+        }, { once: true });
+        
+        // If already loaded, set time immediately
+        if (audioElement.readyState >= 2) {
+          const maxAudioTime = audioElement.duration || 0;
+          const constrainedTime = Math.min(Math.max(relativeTime, 0), maxAudioTime);
+          audioElement.currentTime = constrainedTime;
+          
+          // Play when scrubbing (frame-by-frame, not during playback)
+          if (!isDuringPlayback && positionChanged) {
+            audioElement.play().catch(err => {
+              // Audio play failed
+            });
+          }
+        }
+      } else {
+        // Update existing audio element position (when scrubbing)
+        if (audioElement.readyState >= 2) {
+          const maxAudioTime = audioElement.duration || 0;
+          const constrainedTime = Math.min(Math.max(relativeTime, 0), maxAudioTime);
+          const currentTime = audioElement.currentTime || 0;
+          const timeDifference = Math.abs(constrainedTime - currentTime);
+          
+          // For frame-by-frame scrubbing, seek when difference is significant
+          const seekThreshold = 0.01; // 10ms threshold for frame-by-frame
+          
+          if (timeDifference > seekThreshold) {
+            audioElement.currentTime = constrainedTime;
+            
+            // Play audio when position changed (frame-by-frame scrubbing)
+            if (!isDuringPlayback && positionChanged) {
+              if (audioElement.paused) {
+                audioElement.play().catch(err => {
+                  // Audio play failed
+                });
+              }
+            } else if (!isDuringPlayback && !positionChanged) {
+              // Position hasn't changed - pause audio
+              if (!audioElement.paused) {
+                audioElement.pause();
+              }
+            }
+          } else if (!isDuringPlayback && !positionChanged) {
+            // Time difference is small and position hasn't changed - pause audio
+            if (!audioElement.paused) {
+              audioElement.pause();
+            }
+          }
+        }
+      }
+    });
+  }, [timelineClips]);
+
+  // Continuous audio check while dragging (even when position doesn't change)
+  useEffect(() => {
+    let audioCheckInterval = null;
+    
+    const checkAudioWhileDragging = () => {
+      // Check if still dragging by reading from window (updated by Timeline component)
+      if (window.isDraggingPlayhead && lastPlayheadPositionRef.current !== undefined) {
+        // Continuously check audio even when position hasn't changed
+        // This ensures we catch when playhead stops moving but mouse is still down
+        updateAudioPlayback(lastPlayheadPositionRef.current, true);
+      } else {
+        // No longer dragging - clear interval
+        if (audioCheckInterval) {
+          clearInterval(audioCheckInterval);
+          audioCheckInterval = null;
+        }
+      }
+    };
+    
+    // Start continuous checking - check every 50ms while dragging
+    audioCheckInterval = setInterval(checkAudioWhileDragging, 50);
+    
+    return () => {
+      if (audioCheckInterval) {
+        clearInterval(audioCheckInterval);
+      }
+    };
+  }, [updateAudioPlayback]);
+
   // INSTANT PREVIEW HACK - Listen for playhead updates
   useEffect(() => {
     const handlePlayheadUpdate = (event) => {
@@ -345,74 +863,59 @@ const TimelinePreview = ({
         rightCropFrames: playhead.rightCropFrames || 0 
       });
       
+      // Update audio playback (Premiere Pro style)
+      // Use position (60fps timeline frames) from playhead event
+      const timelinePosition = playhead.position || 0;
+      // Check if we're dragging by checking if playhead is being manually moved
+      // We can detect this by checking if there's a recent playhead change
+      const isDragging = window.isDraggingPlayhead || false;
+      updateAudioPlayback(timelinePosition, isDragging);
+      
       if (playhead.activeClip) {
         const { character, filename } = playhead.activeClip;
-        const activeClip = playhead.activeClip; // Full clip object with type and importedMedia
+        const activeClip = playhead.activeClip;
         const clipData = { character, filename };
-        
-        // Determine video URL - use object URL for imported media, backend API for Arcane clips
+
+        // Determine video URL
         let videoUrl;
         if (activeClip.type === 'imported' && activeClip.importedMedia && activeClip.importedMedia.url) {
-          // Use object URL from imported media
           videoUrl = activeClip.importedMedia.url;
         } else if (activeClip.type === 'imported' && activeClip.importedMedia && activeClip.importedMedia.file) {
-          // Create object URL from file if not already created
           videoUrl = URL.createObjectURL(activeClip.importedMedia.file);
         } else {
-          // Use backend API for Arcane clips
           videoUrl = `http://localhost:5000/api/video/${character}/${filename}`;
         }
-        
-        // Check if this is a new clip
-        const isNewClip = !currentClip || currentClip.character !== character || currentClip.filename !== filename;
-        
+
+        // Use ref so this check is never stale regardless of when the listener was registered
+        const isNewClip = !currentClipRef.current ||
+          currentClipRef.current.character !== character ||
+          currentClipRef.current.filename !== filename;
+
         if (isNewClip) {
-          // New clip detected
+          // Hide video immediately to prevent frame-0 flash on new clip load
+          if (videoRef.current) { videoRef.current.style.opacity = '0'; }
           setCurrentClip(clipData);
           setVideoUrl(videoUrl);
         }
-        
+
         // Calculate video time from served frame (24fps frame → video time)
-        const videoTime = playhead.servedFrame / 24; // Convert 24fps frame to video time
-        
-        // Update video time display immediately
+        const videoTime = playhead.servedFrame / 24;
         setVideoTime(videoTime);
-        
+
         // Cache the current frame position for this clip
         const clipKey = `${character}/${filename}`;
         clipFrameCache.current.set(clipKey, playhead.servedFrame);
-        // Cached frame for clip
-        
-        // Seek video immediately for frame-by-frame movement (no debouncing)
-        if (videoRef.current && isVideoLoaded && videoRef.current.duration) {
+
+        // Seek video — use isVideoLoadedRef so this is never stale
+        if (videoRef.current && isVideoLoadedRef.current && videoRef.current.duration) {
           const maxVideoTime = videoRef.current.duration;
           const constrainedVideoTime = Math.min(videoTime, maxVideoTime);
-          
-          // Only seek if the video is ready and the time difference is significant
-          const currentVideoTime = videoRef.current.currentTime;
-          const timeDifference = Math.abs(constrainedVideoTime - currentVideoTime);
-          
-          // Debug logging
-          // Immediate video seek
-          
-          // Only seek if there's a meaningful difference to prevent unnecessary seeks
-          if (timeDifference > 0.05) { // Only seek if difference is more than 50ms
+          const timeDifference = Math.abs(constrainedVideoTime - videoRef.current.currentTime);
+          if (timeDifference > 0.05) {
             videoRef.current.currentTime = constrainedVideoTime;
-            
-            // Verify the seek worked
-            setTimeout(() => {
-              if (videoRef.current) {
-                const newTime = videoRef.current.currentTime;
-                // Seek verification
-              }
-            }, 5);
-          } else {
-            // Skipping seek - time difference too small
           }
         }
       } else {
-        // No active clip
-        // No active clip - clearing video
         setCurrentClip(null);
         setVideoUrl(null);
         setVideoTime(0);
@@ -422,13 +925,12 @@ const TimelinePreview = ({
     window.addEventListener('playheadUpdate', handlePlayheadUpdate);
     return () => {
       window.removeEventListener('playheadUpdate', handlePlayheadUpdate);
-      // Clean up any pending seeks
       if (seekTimeoutRef.current) {
         clearTimeout(seekTimeoutRef.current);
       }
-      // No local animation to clean up - Timeline handles everything
     };
-  }, [timelineClips, currentClip, isVideoLoaded]);
+  // Only re-register when clips change — currentClip/isVideoLoaded are accessed via refs
+  }, [timelineClips, updateAudioPlayback]);
 
   // Update video time when video loads or timeline position changes
   useEffect(() => {
@@ -477,7 +979,38 @@ const TimelinePreview = ({
   // Cleanup: Cancel any pending requests when component unmounts
   useEffect(() => {
     return () => {
-      // No cleanup needed for video element
+      // Clear audio pause timeout
+      if (audioPauseTimeoutRef.current) {
+        clearTimeout(audioPauseTimeoutRef.current);
+      }
+      
+      // Clear all frame audio stop timeouts
+      frameAudioStopTimeoutRef.current.forEach(timeout => {
+        clearTimeout(timeout);
+      });
+      frameAudioStopTimeoutRef.current.clear();
+      
+      // Cleanup audio elements (frame-based)
+      audioElementsRef.current.forEach(audioElement => {
+        audioElement.pause();
+        audioElement.src = '';
+        audioElement.load();
+        // Revoke object URLs if they were created
+        if (audioElement.src && audioElement.src.startsWith('blob:')) {
+          URL.revokeObjectURL(audioElement.src);
+        }
+      });
+      audioElementsRef.current.clear();
+      activeAudioClipsRef.current.clear();
+      
+      // Cleanup audio frame blob URLs
+      audioFrameUrlsRef.current.forEach(url => {
+        if (url && url.startsWith('blob:')) {
+          URL.revokeObjectURL(url);
+        }
+      });
+      audioFrameUrlsRef.current.clear();
+      loadingAudioFramesRef.current.clear();
     };
   }, []);
 
@@ -533,7 +1066,8 @@ const TimelinePreview = ({
                  muted
                  preload="auto"
               onLoadStart={() => {
-    // Video load started
+                // Hide video while new src loads to prevent showing wrong frame
+                if (videoRef.current) { videoRef.current.style.opacity = '0'; }
               }}
               onLoadedMetadata={() => {
                 // Video loaded successfully
@@ -545,20 +1079,14 @@ const TimelinePreview = ({
                   const cachedFrame = clipFrameCache.current.get(clipKey);
                   
                   if (cachedFrame !== undefined) {
-                    const cachedVideoTime = cachedFrame / 24; // Convert 24fps frame to video time
+                    const cachedVideoTime = cachedFrame / 24;
                     const maxVideoTime = videoRef.current.duration || 0;
                     const constrainedTime = Math.min(cachedVideoTime, maxVideoTime);
-                    
-                    // Immediate seek to cached frame
-                    
+                    // Seek to the frame we were on when this clip was first detected.
+                    // onSeeked will set opacity back to 1.
                     videoRef.current.currentTime = constrainedTime;
-                    // Don't update setVideoTime here - only playheadUpdate should update it
-                    
-                    // Show video after seeking to cached position
-                    videoRef.current.style.opacity = '1';
                   } else {
-                    // No cached frame for clip - showing from beginning
-                    // Show video even if no cache
+                    // No cached frame — show from beginning; reveal immediately
                     videoRef.current.style.opacity = '1';
                   }
                 }
@@ -571,16 +1099,8 @@ const TimelinePreview = ({
                 // setVideoTime is only updated by playheadUpdate events
               }}
               onSeeked={() => {
-                // Video seeked successfully
-                // Seeked event fired - video should now show frame
-                // Video element state
-                
-                // Check if we can see the video element in the DOM
-                const videoElement = videoRef.current;
-                if (videoElement) {
-                  const rect = videoElement.getBoundingClientRect();
-                  // Video element position
-                }
+                // Show video now that it has seeked to the correct frame
+                if (videoRef.current) { videoRef.current.style.opacity = '1'; }
               }}
               onCanPlay={() => {
                 // Video can play

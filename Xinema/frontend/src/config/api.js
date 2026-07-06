@@ -53,6 +53,7 @@ export const apiEndpoints = {
   test: () => apiUrl('test'),
   videoInfo: (character, filename) => apiUrl(`video-info/${character}/${filename}`),
   clipThumbnails: () => apiUrl('clip-thumbnails'),
+  matchScript: () => apiUrl('match-script'),
 };
 
 // Export for use in components
